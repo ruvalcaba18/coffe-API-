@@ -86,7 +86,11 @@ go run main.go
 - `POST /api/v1/profile/avatar`: Upload profile picture (max 2MB, JPG/PNG).
 
 ### ☕️ Products
-- `GET /api/v1/products`: List all products (Redis Cached).
+- `GET /api/v1/products`: List products with advanced filtering.
+    - `q`: Search by name or description (ILIKE).
+    - `category`: Filter by specific category.
+    - `min_price`: Minimum price filter.
+    - `max_price`: Maximum price filter.
 - `GET /api/v1/products/{id}`: View product details (Redis Cached).
 - `GET /api/v1/reviews?product_id={id}`: View product reviews.
 - `POST /api/v1/reviews`: Submit a review (product_id in body).

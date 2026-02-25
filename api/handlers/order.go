@@ -3,19 +3,29 @@ package handlers
 import (
 	"coffeebase-api/internal/middleware"
 	ordermodel "coffeebase-api/internal/models/order"
-	orderservice "coffeebase-api/internal/service/order"
-	cartstore "coffeebase-api/internal/store/cart"
-	orderstore "coffeebase-api/internal/store/order"
-	productstore "coffeebase-api/internal/store/product"
+	productmodel "coffeebase-api/internal/models/product"
+	"context"
 	"encoding/json"
 	"net/http"
 )
 
+type OrderRepository interface {
+	GetByUserID(userID int) ([]ordermodel.Order, error)
+	Create(o *ordermodel.Order) error
+}
+
+type OrderCheckoutService interface {
+	Checkout(ctx context.Context, userID int, couponCode string) (*ordermodel.Order, error)
+}
+
+type ProductReader interface {
+	GetByID(id int) (productmodel.Product, error)
+}
+
 type OrderHandler struct {
-	Store        *orderstore.Store
-	ProductStore *productstore.Store
-	CartStore    *cartstore.Store
-	Service      *orderservice.Service
+	Store        OrderRepository
+	ProductStore ProductReader
+	Service      OrderCheckoutService
 }
 
 func (h *OrderHandler) Checkout(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +36,7 @@ func (h *OrderHandler) Checkout(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&input)
 
-	o, err := h.Service.Checkout(userID, input.CouponCode)
+	o, err := h.Service.Checkout(r.Context(), userID, input.CouponCode)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -41,7 +51,7 @@ func (h *OrderHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(int)
 	orders, err := h.Store.GetByUserID(userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -69,7 +79,7 @@ func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Store.Create(o); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 

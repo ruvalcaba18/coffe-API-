@@ -7,3 +7,10 @@ type Product struct {
 	Price       float64 `json:"price"`
 	Category    string  `json:"category"`
 }
+
+type Filter struct {
+	Query    string
+	Category string
+	MinPrice float64
+	MaxPrice float64
+}

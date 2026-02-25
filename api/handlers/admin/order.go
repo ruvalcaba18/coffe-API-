@@ -17,7 +17,7 @@ type OrderHandler struct {
 func (h *OrderHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 	orders, err := h.Store.GetAll()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -44,7 +44,7 @@ func (h *OrderHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Update in DB
 	if err := h.Store.UpdateStatus(id, input.Status); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 

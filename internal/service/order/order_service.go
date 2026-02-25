@@ -36,9 +36,9 @@ func NewService(db *sql.DB, rdb *redis.Client, os *orderstore.Store, cs *cartsto
 	}
 }
 
-func (s *Service) Checkout(userID int, couponCode string) (*ordermodel.Order, error) {
-	ctx := context.Background()
+func (s *Service) Checkout(ctx context.Context, userID int, couponCode string) (*ordermodel.Order, error) {
 	lockKey := fmt.Sprintf("lock:checkout:%d", userID)
+
 
 	// Idempotency: Use Redis lock to prevent double clicks/submissions (5 second window)
 	success, err := s.rdb.SetNX(ctx, lockKey, "locked", 5*time.Second).Result()

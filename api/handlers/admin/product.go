@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/models/product"
 	productstore "coffeebase-api/internal/store/product"
 	"encoding/json"
@@ -15,43 +16,57 @@ type ProductHandler struct {
 }
 
 func (h *ProductHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var p product.Product
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	var req dto.ProductRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
+	p := product.Product{
+		Name:        req.Name,
+		Description: req.Description,
+		Price:       req.Price,
+		Category:    req.Category,
+	}
+
 	if err := h.Store.Create(&p); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(p)
+	json.NewEncoder(w).Encode(dto.MapProductToResponse(p))
 }
 
 func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	var p product.Product
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	var req dto.ProductRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	p.ID = id
+	
+	p := product.Product{
+		ID:          id,
+		Name:        req.Name,
+		Description: req.Description,
+		Price:       req.Price,
+		Category:    req.Category,
+	}
 
 	if err := h.Store.Update(&p); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(p)
+	json.NewEncoder(w).Encode(dto.MapProductToResponse(p))
 }
 
 func (h *ProductHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	
+
 	if err := h.Store.Delete(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 

@@ -30,7 +30,7 @@ func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
 	rev.UserID = userID
 
 	if err := h.Store.Create(&rev); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -45,10 +45,10 @@ func (h *ReviewHandler) GetByProduct(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "product_id query param is required", http.StatusBadRequest)
 		return
 	}
-	
+
 	reviews, err := h.Store.GetByProductID(productID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 

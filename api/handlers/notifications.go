@@ -10,7 +10,7 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // In production, check against whitelist
+		return true
 	},
 }
 
@@ -27,10 +27,21 @@ func (h *NotificationHandler) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	h.Hub.AddConnection(userID, conn)
-	defer h.Hub.RemoveConnection(userID, conn)
+	client := &notifications.Client{
+		Hub:    h.Hub,
+		UserID: userID,
+		Conn:   conn,
+		Send:   make(chan interface{}, 256),
+	}
+
+	h.Hub.AddClient(client)
+	defer h.Hub.RemoveClient(client)
+
+	// Iniciar la goroutine de escritura asíncrona
+	go client.WritePump()
 
 	// Keep connection alive until client disconnects
+	// The read loop runs in the main handler goroutine
 	for {
 		_, _, err := conn.ReadMessage()
 		if err != nil {

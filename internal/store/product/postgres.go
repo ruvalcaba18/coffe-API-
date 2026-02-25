@@ -23,9 +23,11 @@ func NewStore(db *sql.DB, rdb *redis.Client) *Store {
 	}
 }
 
-func (s *Store) GetAll() ([]productmodel.Product, error) {
+func (s *Store) GetAll(f productmodel.Filter) ([]productmodel.Product, error) {
 	ctx := context.Background()
-	cacheKey := "all_products"
+	
+	// Generate dynamic cache key based on filters
+	cacheKey := fmt.Sprintf("products:q=%s:c=%s:min=%.2f:max=%.2f", f.Query, f.Category, f.MinPrice, f.MaxPrice)
 
 	// Try cache first
 	if val, err := s.rdb.Get(ctx, cacheKey).Result(); err == nil {
@@ -35,8 +37,33 @@ func (s *Store) GetAll() ([]productmodel.Product, error) {
 		}
 	}
 
-	// Cache miss: Query DB
-	rows, err := s.db.Query("SELECT id, name, description, price, category FROM products")
+	// Dynamic Query Construction
+	query := "SELECT id, name, description, price, category FROM products WHERE 1=1"
+	var args []interface{}
+	argCount := 1
+
+	if f.Query != "" {
+		query += fmt.Sprintf(" AND (name ILIKE $%d OR description ILIKE $%d)", argCount, argCount+1)
+		args = append(args, "%"+f.Query+"%", "%"+f.Query+"%")
+		argCount += 2
+	}
+	if f.Category != "" {
+		query += fmt.Sprintf(" AND category = $%d", argCount)
+		args = append(args, f.Category)
+		argCount++
+	}
+	if f.MinPrice > 0 {
+		query += fmt.Sprintf(" AND price >= $%d", argCount)
+		args = append(args, f.MinPrice)
+		argCount++
+	}
+	if f.MaxPrice > 0 {
+		query += fmt.Sprintf(" AND price <= $%d", argCount)
+		args = append(args, f.MaxPrice)
+		argCount++
+	}
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -51,9 +78,9 @@ func (s *Store) GetAll() ([]productmodel.Product, error) {
 		products = append(products, p)
 	}
 
-	// Save to cache for 10 minutes
+	// Save to cache for 5 minutes (shorter for filtered queries)
 	if data, err := json.Marshal(products); err == nil {
-		s.rdb.Set(ctx, cacheKey, data, 10*time.Minute)
+		s.rdb.Set(ctx, cacheKey, data, 5*time.Minute)
 	}
 
 	return products, nil

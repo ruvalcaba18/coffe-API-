@@ -16,7 +16,7 @@ type FavoriteHandler struct {
 
 func (h *FavoriteHandler) Add(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(int)
-	
+
 	var input struct {
 		ProductID int `json:"product_id"`
 	}
@@ -26,7 +26,7 @@ func (h *FavoriteHandler) Add(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Store.Add(userID, input.ProductID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -39,7 +39,7 @@ func (h *FavoriteHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	productID, _ := strconv.Atoi(chi.URLParam(r, "id"))
 
 	if err := h.Store.Remove(userID, productID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -52,7 +52,7 @@ func (h *FavoriteHandler) GetUserFavorites(w http.ResponseWriter, r *http.Reques
 
 	favorites, err := h.Store.GetUserFavorites(userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 

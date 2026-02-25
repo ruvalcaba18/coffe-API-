@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/auth"
 	usermodel "coffeebase-api/internal/models/user"
 	userstore "coffeebase-api/internal/store/user"
@@ -13,14 +14,20 @@ type AuthHandler struct {
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var u usermodel.User
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+	var req dto.RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	hashed, _ := auth.HashPassword(u.Password)
-	u.Password = hashed
+	hashed, _ := auth.HashPassword(req.Password)
+	
+	u := usermodel.User{
+		Username: req.Username,
+		Email:    req.Email,
+		Password: hashed,
+		Language: req.Language,
+	}
 
 	// Default language if not provided
 	if u.Language == "" {
@@ -38,22 +45,20 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(u)
+	json.NewEncoder(w).Encode(dto.MapUserToResponse(u))
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+	var req dto.LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	u, err := h.Store.GetByEmail(input.Email)
-	if err != nil || !auth.CheckPasswordHash(input.Password, u.Password) {
+	u, err := h.Store.GetByEmail(req.Email)
+	if err != nil || !auth.CheckPasswordHash(req.Password, u.Password) {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}

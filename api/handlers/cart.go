@@ -15,7 +15,7 @@ func (h *CartHandler) GetCart(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(int)
 	c, err := h.Store.GetCart(userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -34,7 +34,7 @@ func (h *CartHandler) UpdateItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Store.UpdateItem(userID, input.ProductID, input.Quantity); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 

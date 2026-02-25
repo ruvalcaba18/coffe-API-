@@ -6,35 +6,57 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type Client struct {
+	Hub    *Hub
+	UserID int
+	Conn   *websocket.Conn
+	Send   chan interface{}
+}
+
+func (c *Client) WritePump() {
+	defer c.Conn.Close()
+	for {
+		message, ok := <-c.Send
+		if !ok {
+			// The hub closed the channel.
+			c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
+		}
+		c.Conn.WriteJSON(message)
+	}
+}
+
 type Hub struct {
-	connections map[int][]*websocket.Conn
+	connections map[int]map[*Client]bool
 	mu          sync.RWMutex
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		connections: make(map[int][]*websocket.Conn),
+		connections: make(map[int]map[*Client]bool),
 	}
 }
 
-func (h *Hub) AddConnection(userID int, conn *websocket.Conn) {
+func (h *Hub) AddClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.connections[userID] = append(h.connections[userID], conn)
+	if h.connections[client.UserID] == nil {
+		h.connections[client.UserID] = make(map[*Client]bool)
+	}
+	h.connections[client.UserID][client] = true
 }
 
-func (h *Hub) RemoveConnection(userID int, conn *websocket.Conn) {
+func (h *Hub) RemoveClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	conns := h.connections[userID]
-	for i, c := range conns {
-		if c == conn {
-			h.connections[userID] = append(conns[:i], conns[i+1:]...)
-			break
+	if conns, ok := h.connections[client.UserID]; ok {
+		if _, exists := conns[client]; exists {
+			delete(conns, client)
+			close(client.Send) // Signal WritePump to exit
+			if len(conns) == 0 {
+				delete(h.connections, client.UserID)
+			}
 		}
-	}
-	if len(h.connections[userID]) == 0 {
-		delete(h.connections, userID)
 	}
 }
 
@@ -42,8 +64,14 @@ func (h *Hub) SendToUser(userID int, message interface{}) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	if conns, ok := h.connections[userID]; ok {
-		for _, conn := range conns {
-			conn.WriteJSON(message)
+		for client := range conns {
+			// Send message asynchronously over channel without blocking the lock
+			select {
+			case client.Send <- message:
+			default:
+				// If the client's channel is blocked/full, we skip or handle it
+			}
 		}
 	}
 }
+

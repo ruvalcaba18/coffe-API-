@@ -13,7 +13,6 @@ func RateLimitMiddleware(rdb *redis.Client, limit int, window time.Duration) fun
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := context.Background()
-			// Rate limit by IP or User ID if authenticated
 			key := fmt.Sprintf("ratelimit:%s", r.RemoteAddr)
 
 			count, err := rdb.Incr(ctx, key).Result()

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/middleware"
 	"coffeebase-api/internal/store/user"
 	"encoding/json"
@@ -20,10 +21,8 @@ type UserHandler struct {
 func (h *UserHandler) UpdateLanguage(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(int)
 
-	var input struct {
-		Language string `json:"language"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	var req dto.UpdateLanguageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -37,13 +36,13 @@ func (h *UserHandler) UpdateLanguage(w http.ResponseWriter, r *http.Request) {
 		"gsw": true,
 	}
 
-	if !validLanguages[input.Language] {
+	if !validLanguages[req.Language] {
 		http.Error(w, "Invalid language. Supported: es, en, fr, de, gsw", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.Store.UpdateLanguage(userID, input.Language); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.Store.UpdateLanguage(userID, req.Language); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -77,7 +76,7 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 	// Generate unique filename
 	ext := filepath.Ext(header.Filename)
-	
+
 	// 1. Validate extension
 	allowedExts := map[string]bool{
 		".jpg":  true,
@@ -140,5 +139,5 @@ func (h *UserHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(u)
+	json.NewEncoder(w).Encode(dto.MapUserToResponse(u))
 }

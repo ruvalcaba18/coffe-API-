@@ -23,19 +23,20 @@ import (
 )
 
 func main() {
-	// Initialize database
 	db, err := database.NewConnection()
 	if err != nil {
 		log.Fatalf("Could not connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// Run Migrations
 	if err := database.RunMigrations(db); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	// Initialize Redis
+	if err := database.SeedDatabase(db); err != nil {
+		log.Fatalf("Failed to seed database: %v", err)
+	}
+
 	rdb, err := database.NewRedisClient()
 	if err != nil {
 		log.Printf("Warning: Could not connect to redis: %v. Caching will be disabled.", err)
@@ -52,23 +53,19 @@ func main() {
 	cStore := cartstore.NewStore(db, rdb)
 	coStore := couponstore.NewStore(db)
 
-	// Initialize Services
 	oService := orderservice.NewService(db, rdb, oStore, cStore, pStore, coStore)
 
-	// Initialize Hub
 	hub := notifications.NewHub()
 
-	// Initialize handlers
 	ah := &handlers.AuthHandler{Store: uStore}
 	ph := &handlers.ProductHandler{Store: pStore}
-	oh := &handlers.OrderHandler{Store: oStore, ProductStore: pStore, CartStore: cStore, Service: oService}
+	oh := &handlers.OrderHandler{Store: oStore, ProductStore: pStore, Service: oService}
 	rh := &handlers.ReviewHandler{Store: rStore}
 	fh := &handlers.FavoriteHandler{Store: fStore}
 	uh := &handlers.UserHandler{Store: uStore}
 	ch := &handlers.CartHandler{Store: cStore}
 	nh := &handlers.NotificationHandler{Hub: hub}
 
-	// Admin Handlers
 	aph := &adminhandlers.ProductHandler{Store: pStore}
 	aoh := &adminhandlers.OrderHandler{Store: oStore, Hub: hub}
 	aco := &adminhandlers.CouponHandler{Store: coStore}

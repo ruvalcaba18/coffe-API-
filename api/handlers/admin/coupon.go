@@ -19,7 +19,7 @@ func (h *CouponHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Store.Create(&c); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -30,7 +30,7 @@ func (h *CouponHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *CouponHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 	coupons, err := h.Store.GetAll()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
