@@ -1,0 +1,24 @@
+# Binaries
+main
+coffeebase-api
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Uploads (ignore contents but keep directory structure)
+uploads/avatars/*
+!.gitkeep
+
+# Env
+.env
