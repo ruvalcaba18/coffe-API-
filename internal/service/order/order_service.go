@@ -9,6 +9,7 @@ import (
 
 	ordermodel "coffeebase-api/internal/models/order"
 	cartstore "coffeebase-api/internal/store/cart"
+	couponstore "coffeebase-api/internal/store/coupon"
 	orderstore "coffeebase-api/internal/store/order"
 	productstore "coffeebase-api/internal/store/product"
 
@@ -21,19 +22,21 @@ type Service struct {
 	orderStore   *orderstore.Store
 	cartStore    *cartstore.Store
 	productStore *productstore.Store
+	couponStore  *couponstore.Store
 }
 
-func NewService(db *sql.DB, rdb *redis.Client, os *orderstore.Store, cs *cartstore.Store, ps *productstore.Store) *Service {
+func NewService(db *sql.DB, rdb *redis.Client, os *orderstore.Store, cs *cartstore.Store, ps *productstore.Store, co *couponstore.Store) *Service {
 	return &Service{
 		db:           db,
 		rdb:          rdb,
 		orderStore:   os,
 		cartStore:    cs,
 		productStore: ps,
+		couponStore:  co,
 	}
 }
 
-func (s *Service) Checkout(userID int) (*ordermodel.Order, error) {
+func (s *Service) Checkout(userID int, couponCode string) (*ordermodel.Order, error) {
 	ctx := context.Background()
 	lockKey := fmt.Sprintf("lock:checkout:%d", userID)
 
@@ -77,7 +80,28 @@ func (s *Service) Checkout(userID int) (*ordermodel.Order, error) {
 		Total:  total,
 	}
 
-	// 3. Create Order using the transaction
+	// 3. Handle Coupon
+	if couponCode != "" {
+		c, err := s.couponStore.GetByCode(couponCode)
+		if err != nil {
+			return nil, errors.New("invalid coupon code")
+		}
+		if !c.IsValid(total) {
+			return nil, errors.New("coupon is not valid for this purchase")
+		}
+
+		discount := c.CalculateDiscount(total)
+		o.Total = total - discount
+		o.CouponCode = couponCode
+		o.DiscountAmount = discount
+
+		// Increment usage in DB within transaction
+		if err := s.couponStore.IncrementUsage(tx, couponCode); err != nil {
+			return nil, err
+		}
+	}
+
+	// 4. Create Order using the transaction
 	if err := s.orderStore.CreateWithTx(tx, o); err != nil {
 		return nil, err
 	}

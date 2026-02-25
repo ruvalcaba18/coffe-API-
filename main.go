@@ -9,6 +9,7 @@ import (
 	"coffeebase-api/internal/notifications"
 	orderservice "coffeebase-api/internal/service/order"
 	cartstore "coffeebase-api/internal/store/cart"
+	couponstore "coffeebase-api/internal/store/coupon"
 	favoritestore "coffeebase-api/internal/store/favorite"
 	orderstore "coffeebase-api/internal/store/order"
 	productstore "coffeebase-api/internal/store/product"
@@ -49,9 +50,10 @@ func main() {
 	rStore := reviewstore.NewStore(db)
 	fStore := favoritestore.NewStore(db)
 	cStore := cartstore.NewStore(db, rdb)
+	coStore := couponstore.NewStore(db)
 
 	// Initialize Services
-	oService := orderservice.NewService(db, rdb, oStore, cStore, pStore)
+	oService := orderservice.NewService(db, rdb, oStore, cStore, pStore, coStore)
 
 	// Initialize Hub
 	hub := notifications.NewHub()
@@ -69,8 +71,9 @@ func main() {
 	// Admin Handlers
 	aph := &adminhandlers.ProductHandler{Store: pStore}
 	aoh := &adminhandlers.OrderHandler{Store: oStore, Hub: hub}
+	aco := &adminhandlers.CouponHandler{Store: coStore}
 
-	r := routes.NewRouter(ah, ph, oh, rh, fh, uh, ch, aph, aoh, nh)
+	r := routes.NewRouter(ah, ph, oh, rh, fh, uh, ch, aph, aoh, nh, aco)
 
 	if rdb != nil {
 		r.Use(ratelimit.RateLimitMiddleware(rdb, 60, time.Minute))

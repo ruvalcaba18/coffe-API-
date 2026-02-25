@@ -66,6 +66,7 @@ The API features an **Automatic Migration Runner**. Just start the application a
 4. `04_shopping_cart.sql`
 5. `05_add_user_avatar.sql`
 6. `06_add_user_roles.sql`
+7. `07_add_coupons.sql`
 
 ### 4. Running the App
 ```bash
@@ -95,7 +96,7 @@ go run main.go
 - `PATCH /api/v1/cart`: Update item quantity.
 
 ### 📦 Orders
-- `POST /api/v1/orders`: Create an order from cart (**ACID** Transaction).
+- `POST /api/v1/orders`: Create an order from cart (**ACID** Transaction). Supports optional `coupon_code` in JSON body.
 - `GET /api/v1/orders`: View order history.
 
 ### ❤️ Favorites
@@ -112,3 +113,5 @@ go run main.go
 - `DELETE /api/v1/admin/products/{id}`: Delete a product.
 - `GET /api/v1/admin/orders`: View all system orders.
 - `PATCH /api/v1/admin/orders/{id}`: Update order status (Triggers real-time WS notification).
+- `POST /api/v1/admin/coupons`: Create a new discount coupon (supports fixed/percentage, expiry dates, and usage limits).
+- `GET /api/v1/admin/coupons`: List all coupons and their usage status.

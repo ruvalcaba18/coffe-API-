@@ -21,7 +21,12 @@ type OrderHandler struct {
 func (h *OrderHandler) Checkout(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(int)
 
-	o, err := h.Service.Checkout(userID)
+	var input struct {
+		CouponCode string `json:"coupon_code"`
+	}
+	json.NewDecoder(r.Body).Decode(&input)
+
+	o, err := h.Service.Checkout(userID, input.CouponCode)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

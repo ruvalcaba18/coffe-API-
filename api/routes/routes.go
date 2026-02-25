@@ -24,6 +24,7 @@ func NewRouter(
 	aph *adminhandlers.ProductHandler,
 	aoh *adminhandlers.OrderHandler,
 	nh *handlers.NotificationHandler,
+	aco *adminhandlers.CouponHandler,
 ) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -88,6 +89,10 @@ func NewRouter(
 				// Admin Orders management
 				r.Get("/admin/orders", aoh.GetAll)
 				r.Patch("/admin/orders/{id}", aoh.UpdateStatus) // PATCH to update status only
+
+				// Admin Coupons management
+				r.Post("/admin/coupons", aco.Create)
+				r.Get("/admin/coupons", aco.GetAll)
 			})
 		})
 	})

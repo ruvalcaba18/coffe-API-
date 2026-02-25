@@ -35,8 +35,8 @@ func (s *Store) CreateWithTx(tx *sql.Tx, o *ordermodel.Order) error {
 	o.CreatedAt = time.Now()
 	o.Status = "Pending"
 
-	query := `INSERT INTO orders (id, user_id, total, status, created_at) VALUES ($1, $2, $3, $4, $5)`
-	_, err := tx.Exec(query, o.ID, o.UserID, o.Total, o.Status, o.CreatedAt)
+	query := `INSERT INTO orders (id, user_id, total, status, coupon_code, discount_amount, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	_, err := tx.Exec(query, o.ID, o.UserID, o.Total, o.Status, o.CouponCode, o.DiscountAmount, o.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -53,13 +53,13 @@ func (s *Store) CreateWithTx(tx *sql.Tx, o *ordermodel.Order) error {
 
 func (s *Store) GetByID(id string) (ordermodel.Order, error) {
 	var o ordermodel.Order
-	query := `SELECT id, user_id, total, status, created_at FROM orders WHERE id = $1`
-	err := s.db.QueryRow(query, id).Scan(&o.ID, &o.UserID, &o.Total, &o.Status, &o.CreatedAt)
+	query := `SELECT id, user_id, total, status, coupon_code, discount_amount, created_at FROM orders WHERE id = $1`
+	err := s.db.QueryRow(query, id).Scan(&o.ID, &o.UserID, &o.Total, &o.Status, &o.CouponCode, &o.DiscountAmount, &o.CreatedAt)
 	return o, err
 }
 
 func (s *Store) GetByUserID(userID int) ([]ordermodel.Order, error) {
-	rows, err := s.db.Query(`SELECT id, user_id, total, status, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC`, userID)
+	rows, err := s.db.Query(`SELECT id, user_id, total, status, coupon_code, discount_amount, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (s *Store) GetByUserID(userID int) ([]ordermodel.Order, error) {
 	var orders []ordermodel.Order
 	for rows.Next() {
 		var o ordermodel.Order
-		if err := rows.Scan(&o.ID, &o.UserID, &o.Total, &o.Status, &o.CreatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.UserID, &o.Total, &o.Status, &o.CouponCode, &o.DiscountAmount, &o.CreatedAt); err != nil {
 			return nil, err
 		}
 		
@@ -86,7 +86,7 @@ func (s *Store) GetByUserID(userID int) ([]ordermodel.Order, error) {
 	return orders, nil
 }
 func (s *Store) GetAll() ([]ordermodel.Order, error) {
-	rows, err := s.db.Query(`SELECT id, user_id, total, status, created_at FROM orders ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, user_id, total, status, coupon_code, discount_amount, created_at FROM orders ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (s *Store) GetAll() ([]ordermodel.Order, error) {
 	var orders []ordermodel.Order
 	for rows.Next() {
 		var o ordermodel.Order
-		if err := rows.Scan(&o.ID, &o.UserID, &o.Total, &o.Status, &o.CreatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.UserID, &o.Total, &o.Status, &o.CouponCode, &o.DiscountAmount, &o.CreatedAt); err != nil {
 			return nil, err
 		}
 		orders = append(orders, o)
