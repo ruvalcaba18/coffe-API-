@@ -85,3 +85,33 @@ func (s *Store) GetByID(id int) (productmodel.Product, error) {
 
 	return p, err
 }
+
+func (s *Store) Create(p *productmodel.Product) error {
+	query := `INSERT INTO products (name, description, price, category) VALUES ($1, $2, $3, $4) RETURNING id`
+	err := s.db.QueryRow(query, p.Name, p.Description, p.Price, p.Category).Scan(&p.ID)
+	if err == nil {
+		s.rdb.Del(context.Background(), "all_products")
+	}
+	return err
+}
+
+func (s *Store) Update(p *productmodel.Product) error {
+	query := `UPDATE products SET name = $1, description = $2, price = $3, category = $4 WHERE id = $5`
+	_, err := s.db.Exec(query, p.Name, p.Description, p.Price, p.Category, p.ID)
+	if err == nil {
+		ctx := context.Background()
+		s.rdb.Del(ctx, "all_products")
+		s.rdb.Del(ctx, fmt.Sprintf("product:%d", p.ID))
+	}
+	return err
+}
+
+func (s *Store) Delete(id int) error {
+	_, err := s.db.Exec("DELETE FROM products WHERE id = $1", id)
+	if err == nil {
+		ctx := context.Background()
+		s.rdb.Del(ctx, "all_products")
+		s.rdb.Del(ctx, fmt.Sprintf("product:%d", id))
+	}
+	return err
+}

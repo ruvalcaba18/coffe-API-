@@ -59,11 +59,13 @@ export JWT_SECRET=your_super_secret_key
 ```
 
 ### 3. Database Setup
-Execute the following migrations in order from `internal/database/migrations/`:
+The API features an **Automatic Migration Runner**. Just start the application and it will automatically synchronize the schema:
 1. `01_init.sql` (Schema & Seed)
 2. `02_reviews_favorites.sql`
 3. `03_add_user_language.sql`
 4. `04_shopping_cart.sql`
+5. `05_add_user_avatar.sql`
+6. `06_add_user_roles.sql`
 
 ### 4. Running the App
 ```bash
@@ -71,27 +73,42 @@ go mod tidy
 go run main.go
 ```
 
-## 📡 API Endpoints
+## 📡 RESTful API Endpoints
 
-### Authentication (Public)
-- `POST /api/v1/auth/register`: Create user with language preference.
-- `POST /api/v1/auth/login`: Get JWT (2h TTL).
+### 🔐 Session & Users
+- `POST /api/v1/users`: Register a new account.
+- `POST /api/v1/tokens`: Login and receive JWT access token.
 
-### Products (Auth Required)
-- `GET /api/v1/products`: List all (Cached in Redis).
-- `GET /api/v1/products/{id}`: View details (Cached in Redis).
-- `POST /api/v1/products/{id}/reviews`: Submit a review.
-- `GET /api/v1/products/{id}/reviews`: View product reviews.
-- `POST /api/v1/products/{id}/favorite`: Add to favorites.
+### 👤 Profile
+- `GET /api/v1/profile`: View current profile.
+- `PATCH /api/v1/profile`: Update profile settings (e.g., language).
+- `POST /api/v1/profile/avatar`: Upload profile picture (max 2MB, JPG/PNG).
 
-### Shopping Cart (Auth Required)
-- `GET /api/v1/cart`: View current cart (Fast Redis lookup).
-- `PUT /api/v1/cart`: Add/Update item quantity.
+### ☕️ Products
+- `GET /api/v1/products`: List all products (Redis Cached).
+- `GET /api/v1/products/{id}`: View product details (Redis Cached).
+- `GET /api/v1/reviews?product_id={id}`: View product reviews.
+- `POST /api/v1/reviews`: Submit a review (product_id in body).
 
-### Orders (Auth Required)
-- `POST /api/v1/orders/checkout`: **ACID** process to purchase cart items. Includes idempotency lock.
-- `GET /api/v1/orders/history`: View past purchases.
+### 🛒 Shopping Cart
+- `GET /api/v1/cart`: View current cart.
+- `PATCH /api/v1/cart`: Update item quantity.
 
-### User Profile
-- `GET /api/v1/me`: View current user data.
-- `PUT /api/v1/me/language`: Update UI language preference.
+### 📦 Orders
+- `POST /api/v1/orders`: Create an order from cart (**ACID** Transaction).
+- `GET /api/v1/orders`: View order history.
+
+### ❤️ Favorites
+- `GET /api/v1/favorites`: List your favorite products.
+- `POST /api/v1/favorites`: Add to favorites (product_id in body).
+- `DELETE /api/v1/favorites/{id}`: Remove from favorites.
+
+### 🔔 Notifications
+- `GET /api/v1/notifications/ws`: WebSocket connection for real-time status updates.
+
+### 🛡 Admin Dashboard (Admin Role Required)
+- `POST /api/v1/admin/products`: Create new products.
+- `PUT /api/v1/admin/products/{id}`: Update product details.
+- `DELETE /api/v1/admin/products/{id}`: Delete a product.
+- `GET /api/v1/admin/orders`: View all system orders.
+- `PATCH /api/v1/admin/orders/{id}`: Update order status (Triggers real-time WS notification).

@@ -17,21 +17,24 @@ func (s *Store) Create(u *usermodel.User) error {
 	if u.Language == "" {
 		u.Language = "es" // Default
 	}
-	query := `INSERT INTO users (username, email, password, language, avatar_url) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`
-	return s.db.QueryRow(query, u.Username, u.Email, u.Password, u.Language, u.AvatarURL).Scan(&u.ID, &u.CreatedAt)
+	if u.Role == "" {
+		u.Role = "customer"
+	}
+	query := `INSERT INTO users (username, email, password, language, avatar_url, role) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`
+	return s.db.QueryRow(query, u.Username, u.Email, u.Password, u.Language, u.AvatarURL, u.Role).Scan(&u.ID, &u.CreatedAt)
 }
 
 func (s *Store) GetByEmail(email string) (usermodel.User, error) {
 	var u usermodel.User
-	query := `SELECT id, username, email, password, language, avatar_url, created_at FROM users WHERE email = $1`
-	err := s.db.QueryRow(query, email).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.CreatedAt)
+	query := `SELECT id, username, email, password, language, avatar_url, role, created_at FROM users WHERE email = $1`
+	err := s.db.QueryRow(query, email).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, &u.CreatedAt)
 	return u, err
 }
 
 func (s *Store) GetByID(id int) (usermodel.User, error) {
 	var u usermodel.User
-	query := `SELECT id, username, email, password, language, avatar_url, created_at FROM users WHERE id = $1`
-	err := s.db.QueryRow(query, id).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.CreatedAt)
+	query := `SELECT id, username, email, password, language, avatar_url, role, created_at FROM users WHERE id = $1`
+	err := s.db.QueryRow(query, id).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, &u.CreatedAt)
 	return u, err
 }
 

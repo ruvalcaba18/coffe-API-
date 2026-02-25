@@ -2,6 +2,7 @@ package routes
 
 import (
 	"coffeebase-api/api/handlers"
+	adminhandlers "coffeebase-api/api/handlers/admin"
 	custom_middleware "coffeebase-api/internal/middleware"
 	"net/http"
 	"os"
@@ -20,6 +21,9 @@ func NewRouter(
 	fh *handlers.FavoriteHandler,
 	uh *handlers.UserHandler,
 	ch *handlers.CartHandler,
+	aph *adminhandlers.ProductHandler,
+	aoh *adminhandlers.OrderHandler,
+	nh *handlers.NotificationHandler,
 ) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -32,39 +36,59 @@ func NewRouter(
 	FileServer(r, "/uploads", filesDir)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		// Public routes
-		r.Post("/auth/register", ah.Register)
-		r.Post("/auth/login", ah.Login)
+		// Public/Session routes
+		r.Post("/users", ah.Register)   // POST /users is the REST way to register
+		r.Post("/tokens", ah.Login)    // POST /tokens is the REST way to login/get token
+
+		// WebSocket Notification Route
+		r.Group(func(r chi.Router) {
+			r.Use(custom_middleware.AuthMiddleware)
+			r.Get("/notifications/ws", nh.HandleWS)
+		})
 
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(custom_middleware.AuthMiddleware)
 			
-			// User Profile
-			r.Get("/me", uh.GetProfile)
-			r.Put("/me/language", uh.UpdateLanguage)
-			r.Put("/me/avatar", uh.UploadAvatar)
+			// Account/Profile
+			r.Get("/profile", uh.GetProfile)
+			r.Patch("/profile", uh.UpdateLanguage) // Using PATCH for partial updates
+			r.Post("/profile/avatar", uh.UploadAvatar) // Resource: Avatar
+
 			// Products
 			r.Get("/products", ph.GetAll)
 			r.Get("/products/{id}", ph.GetByID)
 			
-			// Orders & Checkout
-			r.Post("/orders", oh.Create)
-			r.Post("/orders/checkout", oh.Checkout)
-			r.Get("/orders/history", oh.GetHistory)
+			// Orders
+			r.Post("/orders", oh.Checkout) // Default POST creates an order from cart
+			r.Get("/orders", oh.GetHistory) // Default GET lists your orders
 			
 			// Shopping Cart
 			r.Get("/cart", ch.GetCart)
-			r.Put("/cart", ch.UpdateItem)
+			r.Patch("/cart", ch.UpdateItem)
 			
 			// Reviews
-			r.Post("/products/{id}/reviews", rh.Create)
-			r.Get("/products/{id}/reviews", rh.GetByProduct)
+			r.Post("/reviews", rh.Create) // product_id in body
+			r.Get("/reviews", rh.GetByProduct) // product_id in query param
 			
 			// Favorites
-			r.Post("/products/{id}/favorite", fh.Add)
-			r.Delete("/products/{id}/favorite", fh.Remove)
 			r.Get("/favorites", fh.GetUserFavorites)
+			r.Post("/favorites", fh.Add) // product_id in body
+			r.Delete("/favorites/{id}", fh.Remove)
+
+			// Admin Section (Resource-based)
+			r.Group(func(r chi.Router) {
+				r.Use(custom_middleware.AdminMiddleware)
+				
+				// Admin Products management
+				r.Post("/admin/products", aph.Create)
+				r.Put("/admin/products/{id}", aph.Update)
+				r.Delete("/admin/products/{id}", aph.Delete)
+				
+				// Admin Orders management
+				r.Get("/admin/orders", aoh.GetAll)
+				r.Patch("/admin/orders/{id}", aoh.UpdateStatus) // PATCH to update status only
+			})
 		})
 	})
 

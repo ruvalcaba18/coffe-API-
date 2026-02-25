@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -15,9 +16,16 @@ type FavoriteHandler struct {
 
 func (h *FavoriteHandler) Add(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(int)
-	productID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	
+	var input struct {
+		ProductID int `json:"product_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
 
-	if err := h.Store.Add(userID, productID); err != nil {
+	if err := h.Store.Add(userID, input.ProductID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

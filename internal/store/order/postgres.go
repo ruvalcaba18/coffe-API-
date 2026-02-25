@@ -51,6 +51,13 @@ func (s *Store) CreateWithTx(tx *sql.Tx, o *ordermodel.Order) error {
 	return nil
 }
 
+func (s *Store) GetByID(id string) (ordermodel.Order, error) {
+	var o ordermodel.Order
+	query := `SELECT id, user_id, total, status, created_at FROM orders WHERE id = $1`
+	err := s.db.QueryRow(query, id).Scan(&o.ID, &o.UserID, &o.Total, &o.Status, &o.CreatedAt)
+	return o, err
+}
+
 func (s *Store) GetByUserID(userID int) ([]ordermodel.Order, error) {
 	rows, err := s.db.Query(`SELECT id, user_id, total, status, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC`, userID)
 	if err != nil {
@@ -77,4 +84,26 @@ func (s *Store) GetByUserID(userID int) ([]ordermodel.Order, error) {
 		orders = append(orders, o)
 	}
 	return orders, nil
+}
+func (s *Store) GetAll() ([]ordermodel.Order, error) {
+	rows, err := s.db.Query(`SELECT id, user_id, total, status, created_at FROM orders ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []ordermodel.Order
+	for rows.Next() {
+		var o ordermodel.Order
+		if err := rows.Scan(&o.ID, &o.UserID, &o.Total, &o.Status, &o.CreatedAt); err != nil {
+			return nil, err
+		}
+		orders = append(orders, o)
+	}
+	return orders, nil
+}
+
+func (s *Store) UpdateStatus(id string, status string) error {
+	_, err := s.db.Exec("UPDATE orders SET status = $1 WHERE id = $2", status, id)
+	return err
 }

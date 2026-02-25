@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-
-	"github.com/go-chi/chi/v5"
 )
 
 type ReviewHandler struct {
@@ -17,7 +15,6 @@ type ReviewHandler struct {
 
 func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value(middleware.UserIDKey).(int)
-	productID, _ := strconv.Atoi(chi.URLParam(r, "id"))
 
 	var rev reviewmodel.Review
 	if err := json.NewDecoder(r.Body).Decode(&rev); err != nil {
@@ -25,8 +22,12 @@ func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if rev.ProductID == 0 {
+		http.Error(w, "product_id is required", http.StatusBadRequest)
+		return
+	}
+
 	rev.UserID = userID
-	rev.ProductID = productID
 
 	if err := h.Store.Create(&rev); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -39,7 +40,11 @@ func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ReviewHandler) GetByProduct(w http.ResponseWriter, r *http.Request) {
-	productID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	productID, _ := strconv.Atoi(r.URL.Query().Get("product_id"))
+	if productID == 0 {
+		http.Error(w, "product_id query param is required", http.StatusBadRequest)
+		return
+	}
 	
 	reviews, err := h.Store.GetByProductID(productID)
 	if err != nil {
