@@ -9,10 +9,6 @@ import (
 	webServer "net/http"
 )
 
-/**
- * AuthHandler handles user registration and authentication.
- * Refactored to eliminate all shorthands and follow strictly declarative naming.
- */
 type AuthHandler struct {
 	Store *userstore.Store
 }
@@ -34,7 +30,6 @@ func (handler *AuthHandler) Register(responseWriter webServer.ResponseWriter, ht
 		Language: registrationRequest.Language,
 	}
 
-	// Default language if not provided
 	if userInstance.Language == "" {
 		userInstance.Language = "es"
 	}
@@ -86,14 +81,13 @@ func (handler *AuthHandler) Login(responseWriter webServer.ResponseWriter, httpR
 		return
 	}
 
-	// Set secure HTTP-only cookie to prevent XSS theft
 	authCookie := &webServer.Cookie{
 		Name:     "auth-token",
 		Value:    authenticationToken,
 		Path:     "/",
-		MaxAge:   7200, // 2 hours
+		MaxAge:   7200, 
 		HttpOnly: true,
-		Secure:   false, // Set to true in production over HTTPS
+		Secure:   false, 
 		SameSite: webServer.SameSiteLaxMode,
 	}
 	webServer.SetCookie(responseWriter, authCookie)

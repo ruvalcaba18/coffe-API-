@@ -17,34 +17,23 @@ var cryptographySecretKey = []byte(os.Getenv("JWT_SECRET"))
 
 func init() {
 	if len(cryptographySecretKey) == 0 {
-		cryptographySecretKey = []byte("my-secret-key-12345") // Fallback for dev
+		cryptographySecretKey = []byte("my-secret-key-12345")
 	}
 }
 
-/**
- * Claims defines the structured payload inside the JWT.
- * Enhanced with Fingerprint (Client Identification) and JTI (Unique ID)
- * to prevent token theft and reuse.
- */
 type Claims struct {
 	UserID            int    `json:"user_id"`
 	Role              string `json:"role"`
-	ClientFingerprint string `json:"client_fingerprint"` // Hashed IP + UserAgent
+	ClientFingerprint string `json:"client_fingerprint"`
 	jwt.RegisteredClaims
 }
 
-/**
- * GenerateToken creates a highly secure, non-transferable token.
- * It binds the token to the specific device (fingerprint) and assigns a unique JTI.
- */
 func GenerateToken(userID int, role string, clientIP string, userAgent string) (string, error) {
 	expirationDuration := 2 * time.Hour
 	tokenExpirationTime := time.Now().Add(expirationDuration)
 	
-	// Create a unique fingerprint to ensure the token cannot be used in another device/browser
 	uniqueClientFingerprint := GenerateClientFingerprint(clientIP, userAgent)
 	
-	// Generate a unique ID for this specific session token (JTI)
 	sessionIdentifier := uuid.New().String()
 
 	tokenClaims := &Claims{
@@ -63,9 +52,6 @@ func GenerateToken(userID int, role string, clientIP string, userAgent string) (
 	return signedToken.SignedString(cryptographySecretKey)
 }
 
-/**
- * ValidateToken parses and verifies the signature of the token.
- */
 func ValidateToken(tokenString string) (*Claims, error) {
 	tokenClaims := &Claims{}
 	parsedToken, parsingError := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (interface{}, error) {
@@ -83,11 +69,6 @@ func ValidateToken(tokenString string) (*Claims, error) {
 	return tokenClaims, nil
 }
 
-/**
- * GenerateClientFingerprint creates a hash of client-specific attributes.
- * This ensures that if person A steals person B's token, they cannot use it
- * because their IP or browser signature won't match.
- */
 func GenerateClientFingerprint(ipAddress string, userAgent string) string {
 	combinedAttributes := fmt.Sprintf("%s|%s", ipAddress, userAgent)
 	attributeHash := sha256.Sum256([]byte(combinedAttributes))
