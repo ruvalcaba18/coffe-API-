@@ -5,140 +5,193 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
+	outputFormatting "fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
+/**
+ * Store handles all persistence operations for the product module.
+ * Refactored to eliminate all shorthands and follow strictly declarative naming.
+ */
 type Store struct {
-	db  *sql.DB
-	rdb *redis.Client
+	databaseConnection *sql.DB
+	redisClient        *redis.Client
 }
 
-func NewStore(db *sql.DB, rdb *redis.Client) *Store {
+func NewStore(databaseConnection *sql.DB, redisClient *redis.Client) *Store {
 	return &Store{
-		db:  db,
-		rdb: rdb,
+		databaseConnection: databaseConnection,
+		redisClient:        redisClient,
 	}
 }
 
-func (s *Store) GetAll(f productmodel.Filter) ([]productmodel.Product, error) {
-	ctx := context.Background()
+func (productStore *Store) GetAll(filter productmodel.Filter) ([]productmodel.Product, error) {
+	requestContext := context.Background()
 	
 	// Generate dynamic cache key based on filters
-	cacheKey := fmt.Sprintf("products:q=%s:c=%s:min=%.2f:max=%.2f", f.Query, f.Category, f.MinPrice, f.MaxPrice)
+	cacheUniqueIdentifier := outputFormatting.Sprintf("products:q=%s:c=%s:min=%.2f:max=%.2f", filter.Query, filter.Category, filter.MinPrice, filter.MaxPrice)
 
 	// Try cache first
-	if val, err := s.rdb.Get(ctx, cacheKey).Result(); err == nil {
-		var products []productmodel.Product
-		if err := json.Unmarshal([]byte(val), &products); err == nil {
-			return products, nil
+	if cachedValue, cacheError := productStore.redisClient.Get(requestContext, cacheUniqueIdentifier).Result(); cacheError == nil {
+		var cachedProducts []productmodel.Product
+		if unmarshalError := json.Unmarshal([]byte(cachedValue), &cachedProducts); unmarshalError == nil {
+			return cachedProducts, nil
 		}
 	}
 
 	// Dynamic Query Construction
-	query := "SELECT id, name, description, price, category FROM products WHERE 1=1"
-	var args []interface{}
-	argCount := 1
+	baseQuery := "SELECT id, name, description, price, category FROM products WHERE 1=1"
+	var queryArguments []interface{}
+	argumentCounter := 1
 
-	if f.Query != "" {
-		query += fmt.Sprintf(" AND (name ILIKE $%d OR description ILIKE $%d)", argCount, argCount+1)
-		args = append(args, "%"+f.Query+"%", "%"+f.Query+"%")
-		argCount += 2
+	if filter.Query != "" {
+		baseQuery += outputFormatting.Sprintf(" AND (name ILIKE $%d OR description ILIKE $%d)", argumentCounter, argumentCounter+1)
+		queryArguments = append(queryArguments, "%"+filter.Query+"%", "%"+filter.Query+"%")
+		argumentCounter += 2
 	}
-	if f.Category != "" {
-		query += fmt.Sprintf(" AND category = $%d", argCount)
-		args = append(args, f.Category)
-		argCount++
+	if filter.Category != "" {
+		baseQuery += outputFormatting.Sprintf(" AND category = $%d", argumentCounter)
+		queryArguments = append(queryArguments, filter.Category)
+		argumentCounter++
 	}
-	if f.MinPrice > 0 {
-		query += fmt.Sprintf(" AND price >= $%d", argCount)
-		args = append(args, f.MinPrice)
-		argCount++
+	if filter.MinPrice > 0 {
+		baseQuery += outputFormatting.Sprintf(" AND price >= $%d", argumentCounter)
+		queryArguments = append(queryArguments, filter.MinPrice)
+		argumentCounter++
 	}
-	if f.MaxPrice > 0 {
-		query += fmt.Sprintf(" AND price <= $%d", argCount)
-		args = append(args, f.MaxPrice)
-		argCount++
+	if filter.MaxPrice > 0 {
+		baseQuery += outputFormatting.Sprintf(" AND price <= $%d", argumentCounter)
+		queryArguments = append(queryArguments, filter.MaxPrice)
+		argumentCounter++
 	}
 
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, err
+	rows, queryError := productStore.databaseConnection.Query(baseQuery, queryArguments...)
+	if queryError != nil {
+		return nil, queryError
 	}
 	defer rows.Close()
 
-	var products []productmodel.Product
+	var productList []productmodel.Product
 	for rows.Next() {
-		var p productmodel.Product
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.Category); err != nil {
-			return nil, err
+		var productInstance productmodel.Product
+		if scanError := rows.Scan(&productInstance.ID, &productInstance.Name, &productInstance.Description, &productInstance.Price, &productInstance.Category); scanError != nil {
+			return nil, scanError
 		}
-		products = append(products, p)
+		productList = append(productList, productInstance)
 	}
 
-	// Save to cache for 5 minutes (shorter for filtered queries)
-	if data, err := json.Marshal(products); err == nil {
-		s.rdb.Set(ctx, cacheKey, data, 5*time.Minute)
+	// Save to cache for 5 minutes
+	if serializedData, serializationError := json.Marshal(productList); serializationError == nil {
+		productStore.redisClient.Set(requestContext, cacheUniqueIdentifier, serializedData, 5*time.Minute)
 	}
 
-	return products, nil
+	return productList, nil
 }
 
-func (s *Store) GetByID(id int) (productmodel.Product, error) {
-	ctx := context.Background()
-	cacheKey := fmt.Sprintf("product:%d", id)
+func (productStore *Store) GetByID(productID int) (productmodel.Product, error) {
+	requestContext := context.Background()
+	cacheUniqueIdentifier := outputFormatting.Sprintf("product:%d", productID)
 
 	// Try cache
-	if val, err := s.rdb.Get(ctx, cacheKey).Result(); err == nil {
-		var p productmodel.Product
-		if err := json.Unmarshal([]byte(val), &p); err == nil {
-			return p, nil
+	if cachedValue, cacheError := productStore.redisClient.Get(requestContext, cacheUniqueIdentifier).Result(); cacheError == nil {
+		var cachedProduct productmodel.Product
+		if unmarshalError := json.Unmarshal([]byte(cachedValue), &cachedProduct); unmarshalError == nil {
+			return cachedProduct, nil
 		}
 	}
 
-	// Cache miss
-	var p productmodel.Product
-	err := s.db.QueryRow("SELECT id, name, description, price, category FROM products WHERE id = $1", id).
-		Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.Category)
+	var productInstance productmodel.Product
+	fetchError := productStore.databaseConnection.QueryRow("SELECT id, name, description, price, category FROM products WHERE id = $1", productID).
+		Scan(&productInstance.ID, &productInstance.Name, &productInstance.Description, &productInstance.Price, &productInstance.Category)
 	
-	if err == nil {
-		// Save to cache
-		if data, err := json.Marshal(p); err == nil {
-			s.rdb.Set(ctx, cacheKey, data, 10*time.Minute)
+	if fetchError == nil {
+		if serializedData, serializationError := json.Marshal(productInstance); serializationError == nil {
+			productStore.redisClient.Set(requestContext, cacheUniqueIdentifier, serializedData, 10*time.Minute)
 		}
 	}
 
-	return p, err
+	return productInstance, fetchError
 }
 
-func (s *Store) Create(p *productmodel.Product) error {
-	query := `INSERT INTO products (name, description, price, category) VALUES ($1, $2, $3, $4) RETURNING id`
-	err := s.db.QueryRow(query, p.Name, p.Description, p.Price, p.Category).Scan(&p.ID)
-	if err == nil {
-		s.rdb.Del(context.Background(), "all_products")
+func (productStore *Store) Create(productInstance *productmodel.Product) error {
+	queryStatement := `INSERT INTO products (name, description, price, category) VALUES ($1, $2, $3, $4) RETURNING id`
+	executionError := productStore.databaseConnection.QueryRow(queryStatement, productInstance.Name, productInstance.Description, productInstance.Price, productInstance.Category).Scan(&productInstance.ID)
+	if executionError == nil {
+		productStore.redisClient.Del(context.Background(), "all_products")
 	}
-	return err
+	return executionError
 }
 
-func (s *Store) Update(p *productmodel.Product) error {
-	query := `UPDATE products SET name = $1, description = $2, price = $3, category = $4 WHERE id = $5`
-	_, err := s.db.Exec(query, p.Name, p.Description, p.Price, p.Category, p.ID)
-	if err == nil {
-		ctx := context.Background()
-		s.rdb.Del(ctx, "all_products")
-		s.rdb.Del(ctx, fmt.Sprintf("product:%d", p.ID))
+func (productStore *Store) Update(productInstance *productmodel.Product) error {
+	queryStatement := `UPDATE products SET name = $1, description = $2, price = $3, category = $4 WHERE id = $5`
+	_, executionError := productStore.databaseConnection.Exec(queryStatement, productInstance.Name, productInstance.Description, productInstance.Price, productInstance.Category, productInstance.ID)
+	if executionError == nil {
+		requestContext := context.Background()
+		productStore.redisClient.Del(requestContext, "all_products")
+		productStore.redisClient.Del(requestContext, outputFormatting.Sprintf("product:%d", productInstance.ID))
 	}
-	return err
+	return executionError
 }
 
-func (s *Store) Delete(id int) error {
-	_, err := s.db.Exec("DELETE FROM products WHERE id = $1", id)
-	if err == nil {
-		ctx := context.Background()
-		s.rdb.Del(ctx, "all_products")
-		s.rdb.Del(ctx, fmt.Sprintf("product:%d", id))
+func (productStore *Store) Delete(productID int) error {
+	_, executionError := productStore.databaseConnection.Exec("DELETE FROM products WHERE id = $1", productID)
+	if executionError == nil {
+		requestContext := context.Background()
+		productStore.redisClient.Del(requestContext, "all_products")
+		productStore.redisClient.Del(requestContext, outputFormatting.Sprintf("product:%d", productID))
 	}
-	return err
+	return executionError
 }
+
+func (productStore *Store) CreateBulk(productCollection []productmodel.Product) error {
+	databaseTransaction, transactionError := productStore.databaseConnection.Begin()
+	if transactionError != nil {
+		return transactionError
+	}
+	defer databaseTransaction.Rollback()
+
+	insertionQuery := `INSERT INTO products (name, description, price, category) VALUES ($1, $2, $3, $4)`
+	preparedContextStatement, preparationError := databaseTransaction.Prepare(insertionQuery)
+	if preparationError != nil {
+		return preparationError
+	}
+	defer preparedContextStatement.Close()
+
+	for _, item := range productCollection {
+		if _, executionError := preparedContextStatement.Exec(item.Name, item.Description, item.Price, item.Category); executionError != nil {
+			return executionError
+		}
+	}
+
+	if commitError := databaseTransaction.Commit(); commitError != nil {
+		return commitError
+	}
+
+	// Invalidate cache
+	productStore.redisClient.FlushDB(context.Background())
+	return nil
+}
+
+func (productStore *Store) GetCategories() ([]string, error) {
+	queryStatement := `SELECT DISTINCT category FROM products WHERE category != '' ORDER BY category ASC`
+	rows, queryError := productStore.databaseConnection.Query(queryStatement)
+	if queryError != nil {
+		return nil, queryError
+	}
+	defer rows.Close()
+
+	var categoryList []string
+	for rows.Next() {
+		var categoryName string
+		if scanError := rows.Scan(&categoryName); scanError != nil {
+			return nil, scanError
+		}
+		categoryList = append(categoryList, categoryName)
+	}
+
+	return categoryList, nil
+}
+
+

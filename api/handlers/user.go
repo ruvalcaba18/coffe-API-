@@ -3,27 +3,32 @@ package handlers
 import (
 	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/middleware"
-	"coffeebase-api/internal/store/user"
+	userStorePackage "coffeebase-api/internal/store/user"
 	"encoding/json"
-	"fmt"
+	outputFormatting "fmt"
 	"io"
-	"net/http"
+	webServer "net/http"
 	"os"
 	"path/filepath"
-	"strings"
+	stringManipulation "strings"
 	"time"
 )
 
+/**
+ * UserHandler manages user-specific operations like profile updates and avatar uploads.
+ * Refactored to eliminate all shorthands and follow strictly declarative naming.
+ */
 type UserHandler struct {
-	Store *user.Store
+	Store *userStorePackage.Store
 }
 
-func (h *UserHandler) UpdateLanguage(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+func (handler *UserHandler) UpdateLanguage(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
-	var req dto.UpdateLanguageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	var languageUpdateRequest dto.UpdateLanguageRequest
+	decodingError := json.NewDecoder(httpRequest.Body).Decode(&languageUpdateRequest)
+	if decodingError != nil {
+		webServer.Error(responseWriter, "Invalid request body", webServer.StatusBadRequest)
 		return
 	}
 
@@ -36,108 +41,110 @@ func (h *UserHandler) UpdateLanguage(w http.ResponseWriter, r *http.Request) {
 		"gsw": true,
 	}
 
-	if !validLanguages[req.Language] {
-		http.Error(w, "Invalid language. Supported: es, en, fr, de, gsw", http.StatusBadRequest)
+	if !validLanguages[languageUpdateRequest.Language] {
+		webServer.Error(responseWriter, "Invalid language. Supported: es, en, fr, de, gsw", webServer.StatusBadRequest)
 		return
 	}
 
-	if err := h.Store.UpdateLanguage(userID, req.Language); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	updateError := handler.Store.UpdateLanguage(currentUserID, languageUpdateRequest.Language)
+	if updateError != nil {
+		webServer.Error(responseWriter, "Internal server error", webServer.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Language updated successfully"})
+	responseWriter.WriteHeader(webServer.StatusOK)
+	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Language updated successfully"})
 }
 
-func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+func (handler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
 	// Limit upload size (2MB - considered normal for profile pictures)
-	const MaxSize = 2 << 20
-	r.ParseMultipartForm(MaxSize)
+	const maximumAllowedFileSize = 2 << 20
+	httpRequest.ParseMultipartForm(maximumAllowedFileSize)
 
-	file, header, err := r.FormFile("avatar")
-	if err != nil {
-		http.Error(w, "Error retrieving the file", http.StatusBadRequest)
+	uploadedFile, fileHeader, retrievalError := httpRequest.FormFile("avatar")
+	if retrievalError != nil {
+		webServer.Error(responseWriter, "Error retrieving the file", webServer.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer uploadedFile.Close()
 
 	// Explicit size check
-	if header.Size > MaxSize {
-		http.Error(w, "File is too large. Maximum size allowed is 2MB.", http.StatusRequestEntityTooLarge)
+	if fileHeader.Size > maximumAllowedFileSize {
+		webServer.Error(responseWriter, "File is too large. Maximum size allowed is 2MB.", webServer.StatusRequestEntityTooLarge)
 		return
 	}
 
 	// Create uploads directory if not exists
-	uploadDir := "./uploads/avatars"
-	os.MkdirAll(uploadDir, os.ModePerm)
+	uploadDirectoryPath := "./uploads/avatars"
+	os.MkdirAll(uploadDirectoryPath, os.ModePerm)
 
 	// Generate unique filename
-	ext := filepath.Ext(header.Filename)
+	fileExtension := filepath.Ext(fileHeader.Filename)
 
 	// 1. Validate extension
-	allowedExts := map[string]bool{
+	allowedExtensions := map[string]bool{
 		".jpg":  true,
 		".jpeg": true,
 		".png":  true,
 		".gif":  true,
 		".webp": true,
 	}
-	if !allowedExts[filepath.Ext(header.Filename)] {
-		http.Error(w, "Invalid file type. Only JPG, PNG, GIF and WEBP are allowed.", http.StatusBadRequest)
+	if !allowedExtensions[fileExtension] {
+		webServer.Error(responseWriter, "Invalid file type. Only JPG, PNG, GIF and WEBP are allowed.", webServer.StatusBadRequest)
 		return
 	}
 
 	// 2. Validate MIME type for security
-	buff := make([]byte, 512)
-	if _, err := file.Read(buff); err != nil {
-		http.Error(w, "Error reading file", http.StatusInternalServerError)
+	typeDetectionBuffer := make([]byte, 512)
+	if _, readingError := uploadedFile.Read(typeDetectionBuffer); readingError != nil {
+		webServer.Error(responseWriter, "Error reading file", webServer.StatusInternalServerError)
 		return
 	}
-	fileType := http.DetectContentType(buff)
-	if !strings.HasPrefix(fileType, "image/") {
-		http.Error(w, "File is not a valid image", http.StatusBadRequest)
+	detectedContentType := webServer.DetectContentType(typeDetectionBuffer)
+	if !stringManipulation.HasPrefix(detectedContentType, "image/") {
+		webServer.Error(responseWriter, "File is not a valid image", webServer.StatusBadRequest)
 		return
 	}
-	// Reset file pointer after reading buff
-	file.Seek(0, io.SeekStart)
+	// Reset file pointer after reading buffer
+	uploadedFile.Seek(0, io.SeekStart)
 
-	filename := fmt.Sprintf("%d_%d%s", userID, time.Now().Unix(), ext)
-	filePath := filepath.Join(uploadDir, filename)
+	uniqueFilename := outputFormatting.Sprintf("%d_%d%s", currentUserID, time.Now().Unix(), fileExtension)
+	targetFilePath := filepath.Join(uploadDirectoryPath, uniqueFilename)
 
 	// Save file to disk
-	dst, err := os.Create(filePath)
-	if err != nil {
-		http.Error(w, "Error saving the file", http.StatusInternalServerError)
+	destinationFile, creationError := os.Create(targetFilePath)
+	if creationError != nil {
+		webServer.Error(responseWriter, "Error saving the file", webServer.StatusInternalServerError)
 		return
 	}
-	defer dst.Close()
+	defer destinationFile.Close()
 
-	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, "Error saving the file", http.StatusInternalServerError)
-		return
-	}
-
-	avatarURL := fmt.Sprintf("/uploads/avatars/%s", filename)
-	if err := h.Store.UpdateAvatar(userID, avatarURL); err != nil {
-		http.Error(w, "Error updating user profile", http.StatusInternalServerError)
+	if _, copyingError := io.Copy(destinationFile, uploadedFile); copyingError != nil {
+		webServer.Error(responseWriter, "Error saving the file", webServer.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{"avatar_url": avatarURL})
+	avatarPublicURL := outputFormatting.Sprintf("/uploads/avatars/%s", uniqueFilename)
+	savingError := handler.Store.UpdateAvatar(currentUserID, avatarPublicURL)
+	if savingError != nil {
+		webServer.Error(responseWriter, "Error updating user profile", webServer.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(responseWriter).Encode(map[string]string{"avatar_url": avatarPublicURL})
 }
 
-func (h *UserHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+func (handler *UserHandler) GetProfile(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
-	u, err := h.Store.GetByID(userID)
-	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+	userInstance, fetchError := handler.Store.GetByID(currentUserID)
+	if fetchError != nil {
+		webServer.Error(responseWriter, "User not found", webServer.StatusNotFound)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dto.MapUserToResponse(u))
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(dto.MapUserToResponse(userInstance))
 }

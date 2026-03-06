@@ -15,74 +15,119 @@ import (
 	productstore "coffeebase-api/internal/store/product"
 	reviewstore "coffeebase-api/internal/store/review"
 	userstore "coffeebase-api/internal/store/user"
-	"fmt"
-	"log"
-	"net/http"
+	"database/sql"
+	output "fmt"
+	systemLog "log"
+	webServer "net/http"
 	"os"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	db, err := database.NewConnection()
-	if err != nil {
-		log.Fatalf("Could not connect to database: %v", err)
-	}
-	defer db.Close()
+	databaseConnection := initializeDatabaseAndRunMigrations()
+	defer databaseConnection.Close()
 
-	if err := database.RunMigrations(db); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+	redisClient := initializeRedisConnection()
+	if redisClient != nil {
+		defer redisClient.Close()
 	}
 
-	if err := database.SeedDatabase(db); err != nil {
-		log.Fatalf("Failed to seed database: %v", err)
+	router := buildApplicationRouter(databaseConnection, redisClient)
+
+	startApiServer(router, redisClient)
+}
+
+func initializeDatabaseAndRunMigrations() *sql.DB {
+	databaseConnection, databaseConnectionError := database.NewConnection()
+	if databaseConnectionError != nil {
+		systemLog.Fatalf("Could not connect to database: %v", databaseConnectionError)
 	}
 
-	rdb, err := database.NewRedisClient()
-	if err != nil {
-		log.Printf("Warning: Could not connect to redis: %v. Caching will be disabled.", err)
-	} else {
-		defer rdb.Close()
+	migrationError := database.RunMigrations(databaseConnection)
+	if migrationError != nil {
+		systemLog.Fatalf("Failed to run migrations: %v", migrationError)
 	}
 
-	// Initialize stores
-	uStore := userstore.NewStore(db)
-	pStore := productstore.NewStore(db, rdb)
-	oStore := orderstore.NewStore(db)
-	rStore := reviewstore.NewStore(db)
-	fStore := favoritestore.NewStore(db)
-	cStore := cartstore.NewStore(db, rdb)
-	coStore := couponstore.NewStore(db)
-
-	oService := orderservice.NewService(db, rdb, oStore, cStore, pStore, coStore)
-
-	hub := notifications.NewHub()
-
-	ah := &handlers.AuthHandler{Store: uStore}
-	ph := &handlers.ProductHandler{Store: pStore}
-	oh := &handlers.OrderHandler{Store: oStore, ProductStore: pStore, Service: oService}
-	rh := &handlers.ReviewHandler{Store: rStore}
-	fh := &handlers.FavoriteHandler{Store: fStore}
-	uh := &handlers.UserHandler{Store: uStore}
-	ch := &handlers.CartHandler{Store: cStore}
-	nh := &handlers.NotificationHandler{Hub: hub}
-
-	aph := &adminhandlers.ProductHandler{Store: pStore}
-	aoh := &adminhandlers.OrderHandler{Store: oStore, Hub: hub}
-	aco := &adminhandlers.CouponHandler{Store: coStore}
-
-	r := routes.NewRouter(ah, ph, oh, rh, fh, uh, ch, aph, aoh, nh, aco)
-
-	if rdb != nil {
-		r.Use(ratelimit.RateLimitMiddleware(rdb, 60, time.Minute))
+	seedingError := database.SeedDatabase(databaseConnection)
+	if seedingError != nil {
+		systemLog.Fatalf("Failed to seed database: %v", seedingError)
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	return databaseConnection
+}
+
+func initializeRedisConnection() *redis.Client {
+	redisClient, redisConnectionError := database.NewRedisClient()
+	if redisConnectionError != nil {
+		systemLog.Printf("Warning: Could not connect to redis: %v. Caching will be disabled.", redisConnectionError)
+		return nil
+	}
+	return redisClient
+}
+
+func buildApplicationRouter(databaseConnection *sql.DB, redisClient *redis.Client) *chi.Mux {
+	// Initialize Stores
+	userStoreInstance := userstore.NewStore(databaseConnection)
+	productStoreInstance := productstore.NewStore(databaseConnection, redisClient)
+	orderStoreInstance := orderstore.NewStore(databaseConnection)
+	reviewStoreInstance := reviewstore.NewStore(databaseConnection)
+	favoriteStoreInstance := favoritestore.NewStore(databaseConnection)
+	cartStoreInstance := cartstore.NewStore(databaseConnection, redisClient)
+	couponStoreInstance := couponstore.NewStore(databaseConnection)
+
+	// Initialize Business Services
+	orderBusinessService := orderservice.NewService(databaseConnection, redisClient, orderStoreInstance, cartStoreInstance, productStoreInstance, couponStoreInstance)
+	notificationHub := notifications.NewHub()
+
+	// Initialize Handlers
+	authHandler := &handlers.AuthHandler{Store: userStoreInstance}
+	productHandler := &handlers.ProductHandler{Store: productStoreInstance}
+	orderHandler := &handlers.OrderHandler{Store: orderStoreInstance, ProductStore: productStoreInstance, Service: orderBusinessService}
+	reviewHandler := &handlers.ReviewHandler{Store: reviewStoreInstance}
+	favoriteHandler := &handlers.FavoriteHandler{Store: favoriteStoreInstance}
+	userHandler := &handlers.UserHandler{Store: userStoreInstance}
+	cartHandler := &handlers.CartHandler{Store: cartStoreInstance}
+	notificationHandler := &handlers.NotificationHandler{Hub: notificationHub}
+
+	adminProductHandler := &adminhandlers.ProductHandler{Store: productStoreInstance}
+	adminOrderHandler := &adminhandlers.OrderHandler{Store: orderStoreInstance, Hub: notificationHub}
+	adminUserHandler := &adminhandlers.UserHandler{Store: userStoreInstance}
+	adminCouponHandler := &adminhandlers.CouponHandler{Store: couponStoreInstance}
+	adminDashboardHandler := &adminhandlers.DashboardHandler{OrderStore: orderStoreInstance, UserStore: userStoreInstance}
+
+	return routes.NewRouter(
+		authHandler,
+		productHandler,
+		orderHandler,
+		reviewHandler,
+		favoriteHandler,
+		userHandler,
+		cartHandler,
+		adminProductHandler,
+		adminOrderHandler,
+		adminUserHandler,
+		notificationHandler,
+		adminCouponHandler,
+		adminDashboardHandler,
+	)
+}
+
+func startApiServer(applicationRouter *chi.Mux, redisClient *redis.Client) {
+	if redisClient != nil {
+		applicationRouter.Use(ratelimit.RateLimitMiddleware(redisClient, 60, time.Minute))
 	}
 
-	fmt.Printf("Coffee Shop API starting on port %s...\n", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	serverPort := os.Getenv("PORT")
+	if serverPort == "" {
+		serverPort = "8080"
+	}
+
+	output.Printf("Coffee Shop API starting on port %s...\n", serverPort)
+	serverRunError := webServer.ListenAndServe(":"+serverPort, applicationRouter)
+	if serverRunError != nil {
+		systemLog.Fatalf("Failed to start server: %v", serverRunError)
 	}
 }

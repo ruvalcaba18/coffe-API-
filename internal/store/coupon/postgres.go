@@ -54,3 +54,13 @@ func (s *Store) GetAll() ([]coupon.Coupon, error) {
 	}
 	return coupons, nil
 }
+func (s *Store) ToggleStatus(id int, isActive bool) error {
+	query := `UPDATE coupons SET is_active = $1 WHERE id = $2`
+	_, err := s.db.Exec(query, isActive, id)
+	return err
+}
+
+func (s *Store) Delete(id int) error {
+	_, err := s.db.Exec(`DELETE FROM coupons WHERE id = $1`, id)
+	return err
+}

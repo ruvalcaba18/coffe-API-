@@ -4,6 +4,7 @@ import (
 	"coffeebase-api/internal/middleware"
 	"coffeebase-api/internal/notifications"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -40,12 +41,27 @@ func (h *NotificationHandler) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// Iniciar la goroutine de escritura asíncrona
 	go client.WritePump()
 
-	// Keep connection alive until client disconnects
-	// The read loop runs in the main handler goroutine
+	// Keep connection alive and read incoming messages
 	for {
-		_, _, err := conn.ReadMessage()
+		var msg map[string]interface{}
+		err := conn.ReadJSON(&msg)
 		if err != nil {
 			break
+		}
+
+		// Handle Incoming Message
+		if msg["type"] == "chat_message" {
+			// Broadcast to all (for now) or process
+			// Example: Auto-reply from Barista
+			go func() {
+				time.Sleep(1 * time.Second)
+				reply := map[string]interface{}{
+					"type":    "chat_message",
+					"message": "¡Recibido! Un barista se pondrá en contacto contigo pronto.",
+					"sender":  "support",
+				}
+				h.Hub.SendToUser(userID, reply)
+			}()
 		}
 	}
 }

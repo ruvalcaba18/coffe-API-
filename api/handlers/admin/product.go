@@ -72,3 +72,30 @@ func (h *ProductHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (h *ProductHandler) CreateBulk(w http.ResponseWriter, r *http.Request) {
+	var reqs []dto.ProductRequest
+	if err := json.NewDecoder(r.Body).Decode(&reqs); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var products []product.Product
+	for _, req := range reqs {
+		products = append(products, product.Product{
+			Name:        req.Name,
+			Description: req.Description,
+			Price:       req.Price,
+			Category:    req.Category,
+		})
+	}
+
+	if err := h.Store.CreateBulk(products); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Bulk creation successful"})
+}
+

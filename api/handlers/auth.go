@@ -6,68 +6,98 @@ import (
 	usermodel "coffeebase-api/internal/models/user"
 	userstore "coffeebase-api/internal/store/user"
 	"encoding/json"
-	"net/http"
+	webServer "net/http"
 )
 
+/**
+ * AuthHandler handles user registration and authentication.
+ * Refactored to eliminate all shorthands and follow strictly declarative naming.
+ */
 type AuthHandler struct {
 	Store *userstore.Store
 }
 
-func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var req dto.RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+func (handler *AuthHandler) Register(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+	var registrationRequest dto.RegisterRequest
+	decodingError := json.NewDecoder(httpRequest.Body).Decode(&registrationRequest)
+	if decodingError != nil {
+		webServer.Error(responseWriter, "Invalid request body", webServer.StatusBadRequest)
 		return
 	}
 
-	hashed, _ := auth.HashPassword(req.Password)
+	hashedPassword, _ := auth.HashPassword(registrationRequest.Password)
 	
-	u := usermodel.User{
-		Username: req.Username,
-		Email:    req.Email,
-		Password: hashed,
-		Language: req.Language,
+	userInstance := usermodel.User{
+		Username: registrationRequest.Username,
+		Email:    registrationRequest.Email,
+		Password: hashedPassword,
+		Language: registrationRequest.Language,
 	}
 
 	// Default language if not provided
-	if u.Language == "" {
-		u.Language = "es"
+	if userInstance.Language == "" {
+		userInstance.Language = "es"
 	}
 
 	validLanguages := map[string]bool{"es": true, "en": true, "fr": true, "de": true, "gsw": true}
-	if !validLanguages[u.Language] {
-		http.Error(w, "Invalid language", http.StatusBadRequest)
+	if !validLanguages[userInstance.Language] {
+		webServer.Error(responseWriter, "Invalid language", webServer.StatusBadRequest)
 		return
 	}
 
-	if err := h.Store.Create(&u); err != nil {
-		http.Error(w, "Error creating user", http.StatusInternalServerError)
+	creationError := handler.Store.Create(&userInstance)
+	if creationError != nil {
+		webServer.Error(responseWriter, "Error creating user", webServer.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(dto.MapUserToResponse(u))
+	responseWriter.Header().Set("Content-Type", "application/json")
+	responseWriter.WriteHeader(webServer.StatusCreated)
+	json.NewEncoder(responseWriter).Encode(dto.MapUserToResponse(userInstance))
 }
 
-func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	var req dto.LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+func (handler *AuthHandler) Login(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+	var loginRequest dto.LoginRequest
+	decodingError := json.NewDecoder(httpRequest.Body).Decode(&loginRequest)
+	if decodingError != nil {
+		webServer.Error(responseWriter, "Invalid request body", webServer.StatusBadRequest)
 		return
 	}
 
-	u, err := h.Store.GetByEmail(req.Email)
-	if err != nil || !auth.CheckPasswordHash(req.Password, u.Password) {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+	userInstance, fetchError := handler.Store.GetByEmail(loginRequest.Email)
+	passwordMatch := auth.CheckPasswordHash(loginRequest.Password, userInstance.Password)
+
+	if fetchError != nil || !passwordMatch {
+		webServer.Error(responseWriter, "Invalid credentials", webServer.StatusUnauthorized)
 		return
 	}
 
-	token, err := auth.GenerateToken(u.ID, u.Role)
-	if err != nil {
-		http.Error(w, "Error generating token", http.StatusInternalServerError)
+	requesterIP := httpRequest.RemoteAddr
+	requesterUserAgent := httpRequest.Header.Get("User-Agent")
+
+	authenticationToken, tokenGenerationError := auth.GenerateToken(
+		userInstance.ID, 
+		userInstance.Role, 
+		requesterIP, 
+		requesterUserAgent,
+	)
+	if tokenGenerationError != nil {
+		webServer.Error(responseWriter, "Error generating secure session", webServer.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	// Set secure HTTP-only cookie to prevent XSS theft
+	authCookie := &webServer.Cookie{
+		Name:     "auth-token",
+		Value:    authenticationToken,
+		Path:     "/",
+		MaxAge:   7200, // 2 hours
+		HttpOnly: true,
+		Secure:   false, // Set to true in production over HTTPS
+		SameSite: webServer.SameSiteLaxMode,
+	}
+	webServer.SetCookie(responseWriter, authCookie)
+
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(map[string]string{"token": authenticationToken})
 }

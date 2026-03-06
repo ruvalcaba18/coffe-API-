@@ -107,3 +107,53 @@ func (s *Store) UpdateStatus(id string, status string) error {
 	_, err := s.db.Exec("UPDATE orders SET status = $1 WHERE id = $2", status, id)
 	return err
 }
+
+type DailySale struct {
+	Date  string  `json:"date"`
+	Total float64 `json:"total"`
+}
+
+type DashboardStats struct {
+	TotalOrders       int         `json:"total_orders"`
+	TotalRevenue      float64     `json:"total_revenue"`
+	AverageOrderValue float64     `json:"avg_order_value"`
+	PendingOrders     int         `json:"pending_orders"`
+	SalesHistory      []DailySale `json:"sales_history"`
+}
+
+func (s *Store) GetDashboardStats() (DashboardStats, error) {
+	var stats DashboardStats
+
+	// 1. Basic Stats
+	err := s.db.QueryRow(`
+		SELECT 
+			COUNT(*), 
+			COALESCE(SUM(total), 0),
+			COALESCE(AVG(total), 0),
+			COUNT(*) FILTER (WHERE status = 'Pending')
+		FROM orders
+	`).Scan(&stats.TotalOrders, &stats.TotalRevenue, &stats.AverageOrderValue, &stats.PendingOrders)
+	if err != nil {
+		return stats, err
+	}
+
+	// 2. Sales History (last 7 days)
+	rows, err := s.db.Query(`
+		SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as day, SUM(total) 
+		FROM orders 
+		GROUP BY day 
+		ORDER BY day ASC 
+		LIMIT 7
+	`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var ds DailySale
+			if err := rows.Scan(&ds.Date, &ds.Total); err == nil {
+				stats.SalesHistory = append(stats.SalesHistory, ds)
+			}
+		}
+	}
+
+	return stats, nil
+}
