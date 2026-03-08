@@ -11,51 +11,51 @@ import (
 )
 
 type FavoriteHandler struct {
-	Store *favorite.Store
+	FavoriteStore *favorite.Store
 }
 
-func (h *FavoriteHandler) Add(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+func (favoriteHandler *FavoriteHandler) Add(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
 
-	var input struct {
+	var addInput struct {
 		ProductID int `json:"product_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if decodeError := json.NewDecoder(request.Body).Decode(&addInput); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.Store.Add(userID, input.ProductID); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if additionError := favoriteHandler.FavoriteStore.Add(userID, addInput.ProductID); additionError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Product added to favorites"})
+	responseWriter.WriteHeader(http.StatusOK)
+	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Product added to favorites"})
 }
 
-func (h *FavoriteHandler) Remove(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
-	productID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+func (favoriteHandler *FavoriteHandler) Remove(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
+	productIdentifier, _ := strconv.Atoi(chi.URLParam(request, "id"))
 
-	if err := h.Store.Remove(userID, productID); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if removalError := favoriteHandler.FavoriteStore.Remove(userID, productIdentifier); removalError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Product removed from favorites"})
+	responseWriter.WriteHeader(http.StatusOK)
+	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Product removed from favorites"})
 }
 
-func (h *FavoriteHandler) GetUserFavorites(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+func (favoriteHandler *FavoriteHandler) GetUserFavorites(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
 
-	favorites, err := h.Store.GetUserFavorites(userID)
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	favoriteList, fetchError := favoriteHandler.FavoriteStore.GetUserFavorites(userID)
+	if fetchError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(favorites)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(favoriteList)
 }

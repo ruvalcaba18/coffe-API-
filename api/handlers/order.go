@@ -7,83 +7,111 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 type OrderRepository interface {
 	GetByUserID(userID int) ([]ordermodel.Order, error)
-	Create(o *ordermodel.Order) error
+	GetLatestByUserID(userID int) (ordermodel.Order, error)
+	GetPickupsByUserID(userID int) ([]ordermodel.Order, error)
+	Create(orderInstance *ordermodel.Order) error
 }
 
 type OrderCheckoutService interface {
-	Checkout(ctx context.Context, userID int, couponCode string) (*ordermodel.Order, error)
+	Checkout(requestContext context.Context, userID int, couponCode string, isPickup bool, pickupTime *time.Time, pickupLocation string) (*ordermodel.Order, error)
 }
 
 type ProductReader interface {
-	GetByID(id int) (productmodel.Product, error)
+	GetByID(productID int) (productmodel.Product, error)
 }
 
 type OrderHandler struct {
-	Store        OrderRepository
+	OrderStore   OrderRepository
 	ProductStore ProductReader
-	Service      OrderCheckoutService
+	OrderService OrderCheckoutService
 }
 
-func (h *OrderHandler) Checkout(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+func (orderHandler *OrderHandler) Checkout(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
 
-	var input struct {
-		CouponCode string `json:"coupon_code"`
+	var checkoutInput struct {
+		CouponCode     string     `json:"coupon_code"`
+		IsPickup       bool       `json:"is_pickup"`
+		PickupTime     *time.Time `json:"pickup_time"`
+		PickupLocation string     `json:"pickup_location"`
 	}
-	json.NewDecoder(r.Body).Decode(&input)
+	json.NewDecoder(request.Body).Decode(&checkoutInput)
 
-	o, err := h.Service.Checkout(r.Context(), userID, input.CouponCode)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	orderResult, checkoutError := orderHandler.OrderService.Checkout(request.Context(), userID, checkoutInput.CouponCode, checkoutInput.IsPickup, checkoutInput.PickupTime, checkoutInput.PickupLocation)
+	if checkoutError != nil {
+		http.Error(responseWriter, checkoutError.Error(), http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(o)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	responseWriter.WriteHeader(http.StatusCreated)
+	json.NewEncoder(responseWriter).Encode(orderResult)
 }
 
-func (h *OrderHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
-	orders, err := h.Store.GetByUserID(userID)
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+func (orderHandler *OrderHandler) GetHistory(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
+	orderHistory, fetchError := orderHandler.OrderStore.GetByUserID(userID)
+	if fetchError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(orders)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(orderHistory)
 }
 
-func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
-	var items []ordermodel.OrderItem
-	if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+func (orderHandler *OrderHandler) GetLatest(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
+	latestOrder, fetchError := orderHandler.OrderStore.GetLatestByUserID(userID)
+	if fetchError != nil {
+		http.Error(responseWriter, "Order not found", http.StatusNotFound)
+		return
+	}
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(latestOrder)
+}
+
+func (orderHandler *OrderHandler) GetPickups(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
+	pickupOrders, fetchError := orderHandler.OrderStore.GetPickupsByUserID(userID)
+	if fetchError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(pickupOrders)
+}
+
+func (orderHandler *OrderHandler) Create(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
+	var orderItems []ordermodel.OrderItem
+	if decodeError := json.NewDecoder(request.Body).Decode(&orderItems); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	var total float64
-	for _, item := range items {
-		p, _ := h.ProductStore.GetByID(item.ProductID)
-		total += p.Price * float64(item.Quantity)
+	var totalAmount float64
+	for _, item := range orderItems {
+		productInstance, _ := orderHandler.ProductStore.GetByID(item.ProductID)
+		totalAmount += productInstance.Price * float64(item.Quantity)
 	}
 
-	o := &ordermodel.Order{
+	orderInstance := &ordermodel.Order{
 		UserID: userID,
-		Items:  items,
-		Total:  total,
+		Items:  orderItems,
+		Total:  totalAmount,
 	}
 
-	if err := h.Store.Create(o); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if createError := orderHandler.OrderStore.Create(orderInstance); createError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(o)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	responseWriter.WriteHeader(http.StatusCreated)
+	json.NewEncoder(responseWriter).Encode(orderInstance)
 }

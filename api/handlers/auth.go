@@ -10,10 +10,10 @@ import (
 )
 
 type AuthHandler struct {
-	Store *userstore.Store
+	UserStore *userstore.Store
 }
 
-func (handler *AuthHandler) Register(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (authHandler *AuthHandler) Register(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
 	var registrationRequest dto.RegisterRequest
 	decodingError := json.NewDecoder(httpRequest.Body).Decode(&registrationRequest)
 	if decodingError != nil {
@@ -40,7 +40,7 @@ func (handler *AuthHandler) Register(responseWriter webServer.ResponseWriter, ht
 		return
 	}
 
-	creationError := handler.Store.Create(&userInstance)
+	creationError := authHandler.UserStore.Create(&userInstance)
 	if creationError != nil {
 		webServer.Error(responseWriter, "Error creating user", webServer.StatusInternalServerError)
 		return
@@ -51,7 +51,7 @@ func (handler *AuthHandler) Register(responseWriter webServer.ResponseWriter, ht
 	json.NewEncoder(responseWriter).Encode(dto.MapUserToResponse(userInstance))
 }
 
-func (handler *AuthHandler) Login(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (authHandler *AuthHandler) Login(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
 	var loginRequest dto.LoginRequest
 	decodingError := json.NewDecoder(httpRequest.Body).Decode(&loginRequest)
 	if decodingError != nil {
@@ -59,7 +59,7 @@ func (handler *AuthHandler) Login(responseWriter webServer.ResponseWriter, httpR
 		return
 	}
 
-	userInstance, fetchError := handler.Store.GetByEmail(loginRequest.Email)
+	userInstance, fetchError := authHandler.UserStore.GetByEmail(loginRequest.Email)
 	passwordMatch := auth.CheckPasswordHash(loginRequest.Password, userInstance.Password)
 
 	if fetchError != nil || !passwordMatch {

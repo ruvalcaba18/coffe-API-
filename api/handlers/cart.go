@@ -8,36 +8,36 @@ import (
 )
 
 type CartHandler struct {
-	Store *cart.Store
+	CartStore *cart.Store
 }
 
-func (h *CartHandler) GetCart(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
-	c, err := h.Store.GetCart(userID)
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+func (cartHandler *CartHandler) GetCart(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
+	userCart, fetchError := cartHandler.CartStore.GetCart(userID)
+	if fetchError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(c)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(userCart)
 }
 
-func (h *CartHandler) UpdateItem(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
-	var input struct {
+func (cartHandler *CartHandler) UpdateItem(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
+	var cartUpdateInput struct {
 		ProductID int `json:"product_id"`
 		Quantity  int `json:"quantity"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+	if decodeError := json.NewDecoder(request.Body).Decode(&cartUpdateInput); decodeError != nil {
+		http.Error(responseWriter, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.Store.UpdateItem(userID, input.ProductID, input.Quantity); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if updateError := cartHandler.CartStore.UpdateItem(userID, cartUpdateInput.ProductID, cartUpdateInput.Quantity); updateError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Cart updated"})
+	responseWriter.WriteHeader(http.StatusOK)
+	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Cart updated"})
 }

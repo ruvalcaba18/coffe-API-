@@ -11,46 +11,46 @@ import (
 )
 
 type UserHandler struct {
-	Store *userstore.Store
+	UserStore *userstore.Store
 }
 
-func (h *UserHandler) GetAll(w http.ResponseWriter, r *http.Request) {
-	users, err := h.Store.GetAll()
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+func (userHandler *UserHandler) GetAll(responseWriter http.ResponseWriter, request *http.Request) {
+	userList, fetchError := userHandler.UserStore.GetAll()
+	if fetchError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	var resp []dto.UserResponse
-	for _, u := range users {
-		resp = append(resp, dto.UserResponse{
-			ID:        u.ID,
-			Username:  u.Username,
-			Email:     u.Email,
-			Language:  u.Language,
-			AvatarURL: u.AvatarURL,
-			Role:      u.Role,
-			CreatedAt: u.CreatedAt,
+	var userResponses []dto.UserResponse
+	for _, userInstance := range userList {
+		userResponses = append(userResponses, dto.UserResponse{
+			ID:        userInstance.ID,
+			Username:  userInstance.Username,
+			Email:     userInstance.Email,
+			Language:  userInstance.Language,
+			AvatarURL: userInstance.AvatarURL,
+			Role:      userInstance.Role,
+			CreatedAt: userInstance.CreatedAt,
 		})
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(responseWriter).Encode(userResponses)
 }
 
-func (h *UserHandler) UpdateRole(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	var req struct {
+func (userHandler *UserHandler) UpdateRole(responseWriter http.ResponseWriter, request *http.Request) {
+	userID, _ := strconv.Atoi(chi.URLParam(request, "id"))
+	var roleUpdateRequest struct {
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if decodeError := json.NewDecoder(request.Body).Decode(&roleUpdateRequest); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.Store.UpdateRole(id, req.Role); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if updateError := userHandler.UserStore.UpdateRole(userID, roleUpdateRequest.Role); updateError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	responseWriter.WriteHeader(http.StatusNoContent)
 }

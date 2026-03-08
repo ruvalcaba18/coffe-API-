@@ -19,10 +19,10 @@ import (
  * Refactored to eliminate all shorthands and follow strictly declarative naming.
  */
 type UserHandler struct {
-	Store *userStorePackage.Store
+	UserStore *userStorePackage.Store
 }
 
-func (handler *UserHandler) UpdateLanguage(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (userHandler *UserHandler) UpdateLanguage(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
 	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
 	var languageUpdateRequest dto.UpdateLanguageRequest
@@ -46,7 +46,7 @@ func (handler *UserHandler) UpdateLanguage(responseWriter webServer.ResponseWrit
 		return
 	}
 
-	updateError := handler.Store.UpdateLanguage(currentUserID, languageUpdateRequest.Language)
+	updateError := userHandler.UserStore.UpdateLanguage(currentUserID, languageUpdateRequest.Language)
 	if updateError != nil {
 		webServer.Error(responseWriter, "Internal server error", webServer.StatusInternalServerError)
 		return
@@ -56,7 +56,7 @@ func (handler *UserHandler) UpdateLanguage(responseWriter webServer.ResponseWrit
 	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Language updated successfully"})
 }
 
-func (handler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (userHandler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
 	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
 	// Limit upload size (2MB - considered normal for profile pictures)
@@ -127,7 +127,7 @@ func (handler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWriter
 	}
 
 	avatarPublicURL := outputFormatting.Sprintf("/uploads/avatars/%s", uniqueFilename)
-	savingError := handler.Store.UpdateAvatar(currentUserID, avatarPublicURL)
+	savingError := userHandler.UserStore.UpdateAvatar(currentUserID, avatarPublicURL)
 	if savingError != nil {
 		webServer.Error(responseWriter, "Error updating user profile", webServer.StatusInternalServerError)
 		return
@@ -136,10 +136,10 @@ func (handler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWriter
 	json.NewEncoder(responseWriter).Encode(map[string]string{"avatar_url": avatarPublicURL})
 }
 
-func (handler *UserHandler) GetProfile(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (userHandler *UserHandler) GetProfile(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
 	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
-	userInstance, fetchError := handler.Store.GetByID(currentUserID)
+	userInstance, fetchError := userHandler.UserStore.GetByID(currentUserID)
 	if fetchError != nil {
 		webServer.Error(responseWriter, "User not found", webServer.StatusNotFound)
 		return

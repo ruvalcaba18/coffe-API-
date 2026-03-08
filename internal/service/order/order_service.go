@@ -17,107 +17,123 @@ import (
 )
 
 type Service struct {
-	db           *sql.DB
-	rdb          *redis.Client
-	orderStore   *orderstore.Store
-	cartStore    *cartstore.Store
-	productStore *productstore.Store
-	couponStore  *couponstore.Store
+	databaseConnection *sql.DB
+	redisClient        *redis.Client
+	orderStore         *orderstore.Store
+	cartStore          *cartstore.Store
+	productStore       *productstore.Store
+	couponStore        *couponstore.Store
 }
 
-func NewService(db *sql.DB, rdb *redis.Client, os *orderstore.Store, cs *cartstore.Store, ps *productstore.Store, co *couponstore.Store) *Service {
+func NewService(
+	databaseConnection *sql.DB,
+	redisClient *redis.Client,
+	orderStore *orderstore.Store,
+	cartStore *cartstore.Store,
+	productStore *productstore.Store,
+	couponStore *couponstore.Store,
+) *Service {
 	return &Service{
-		db:           db,
-		rdb:          rdb,
-		orderStore:   os,
-		cartStore:    cs,
-		productStore: ps,
-		couponStore:  co,
+		databaseConnection: databaseConnection,
+		redisClient:        redisClient,
+		orderStore:         orderStore,
+		cartStore:          cartStore,
+		productStore:       productStore,
+		couponStore:        couponStore,
 	}
 }
 
-func (s *Service) Checkout(ctx context.Context, userID int, couponCode string) (*ordermodel.Order, error) {
+func (orderService *Service) Checkout(
+	requestContext context.Context,
+	userID int,
+	couponCode string,
+	isPickup bool,
+	pickupTime *time.Time,
+	pickupLocation string,
+) (*ordermodel.Order, error) {
 	lockKey := fmt.Sprintf("lock:checkout:%d", userID)
 
-
 	// Idempotency: Use Redis lock to prevent double clicks/submissions (5 second window)
-	success, err := s.rdb.SetNX(ctx, lockKey, "locked", 5*time.Second).Result()
-	if err != nil || !success {
+	lockAcquired, lockError := orderService.redisClient.SetNX(requestContext, lockKey, "locked", 5*time.Second).Result()
+	if lockError != nil || !lockAcquired {
 		return nil, errors.New("request already in progress, please wait")
 	}
 
 	// ACID: Start DB Transaction
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	if err != nil {
-		return nil, err
+	databaseTransaction, transactionBeginError := orderService.databaseConnection.BeginTx(requestContext, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if transactionBeginError != nil {
+		return nil, transactionBeginError
 	}
-	defer tx.Rollback()
+	defer databaseTransaction.Rollback()
 
 	// 1. Get Cart
-	cart, err := s.cartStore.GetCart(userID)
-	if err != nil || len(cart.Items) == 0 {
+	userCart, cartFetchError := orderService.cartStore.GetCart(userID)
+	if cartFetchError != nil || len(userCart.Items) == 0 {
 		return nil, errors.New("cart is empty")
 	}
 
 	// 2. Validate products and calculate total
 	var orderItems []ordermodel.OrderItem
-	var total float64
-	for _, item := range cart.Items {
-		p, err := s.productStore.GetByID(item.ProductID)
-		if err != nil {
+	var totalAmount float64
+	for _, item := range userCart.Items {
+		productInstance, productFetchError := orderService.productStore.GetByID(item.ProductID)
+		if productFetchError != nil {
 			return nil, fmt.Errorf("product %d not found", item.ProductID)
 		}
 		orderItems = append(orderItems, ordermodel.OrderItem{
 			ProductID: item.ProductID,
 			Quantity:  item.Quantity,
 		})
-		total += p.Price * float64(item.Quantity)
+		totalAmount += productInstance.Price * float64(item.Quantity)
 	}
 
-	o := &ordermodel.Order{
-		UserID: userID,
-		Items:  orderItems,
-		Total:  total,
+	orderInstance := &ordermodel.Order{
+		UserID:         userID,
+		Items:          orderItems,
+		Total:          totalAmount,
+		IsPickup:       isPickup,
+		PickupTime:     pickupTime,
+		PickupLocation: pickupLocation,
 	}
 
 	// 3. Handle Coupon
 	if couponCode != "" {
-		c, err := s.couponStore.GetByCode(couponCode)
-		if err != nil {
+		couponInstance, couponFetchError := orderService.couponStore.GetByCode(couponCode)
+		if couponFetchError != nil {
 			return nil, errors.New("invalid coupon code")
 		}
-		if !c.IsValid(total) {
+		if !couponInstance.IsValid(totalAmount) {
 			return nil, errors.New("coupon is not valid for this purchase")
 		}
 
-		discount := c.CalculateDiscount(total)
-		o.Total = total - discount
-		o.CouponCode = couponCode
-		o.DiscountAmount = discount
+		discountAmount := couponInstance.CalculateDiscount(totalAmount)
+		orderInstance.Total = totalAmount - discountAmount
+		orderInstance.CouponCode = couponCode
+		orderInstance.DiscountAmount = discountAmount
 
 		// Increment usage in DB within transaction
-		if err := s.couponStore.IncrementUsage(tx, couponCode); err != nil {
-			return nil, err
+		if incrementError := orderService.couponStore.IncrementUsage(databaseTransaction, couponCode); incrementError != nil {
+			return nil, incrementError
 		}
 	}
 
 	// 4. Create Order using the transaction
-	if err := s.orderStore.CreateWithTx(tx, o); err != nil {
-		return nil, err
+	if createError := orderService.orderStore.CreateWithTx(databaseTransaction, orderInstance); createError != nil {
+		return nil, createError
 	}
 
 	// 4. Clear Cart using the transaction
-	if err := s.cartStore.ClearCart(tx, userID); err != nil {
-		return nil, err
+	if clearError := orderService.cartStore.ClearCart(databaseTransaction, userID); clearError != nil {
+		return nil, clearError
 	}
 
 	// 5. Commit Transaction
-	if err := tx.Commit(); err != nil {
-		return nil, err
+	if commitError := databaseTransaction.Commit(); commitError != nil {
+		return nil, commitError
 	}
 
 	// 6. Invalidate Cart Cache in Redis
-	s.rdb.Del(ctx, fmt.Sprintf("cart:%d", userID))
+	orderService.redisClient.Del(requestContext, fmt.Sprintf("cart:%d", userID))
 
-	return o, nil
+	return orderInstance, nil
 }

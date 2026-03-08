@@ -83,19 +83,19 @@ func buildApplicationRouter(databaseConnection *sql.DB, redisClient *redis.Clien
 	notificationHub := notifications.NewHub()
 
 	// Initialize Handlers
-	authHandler := &handlers.AuthHandler{Store: userStoreInstance}
-	productHandler := &handlers.ProductHandler{Store: productStoreInstance}
-	orderHandler := &handlers.OrderHandler{Store: orderStoreInstance, ProductStore: productStoreInstance, Service: orderBusinessService}
-	reviewHandler := &handlers.ReviewHandler{Store: reviewStoreInstance}
-	favoriteHandler := &handlers.FavoriteHandler{Store: favoriteStoreInstance}
-	userHandler := &handlers.UserHandler{Store: userStoreInstance}
-	cartHandler := &handlers.CartHandler{Store: cartStoreInstance}
-	notificationHandler := &handlers.NotificationHandler{Hub: notificationHub}
+	authHandler := &handlers.AuthHandler{UserStore: userStoreInstance}
+	productHandler := &handlers.ProductHandler{ProductStore: productStoreInstance}
+	orderHandler := &handlers.OrderHandler{OrderStore: orderStoreInstance, ProductStore: productStoreInstance, OrderService: orderBusinessService}
+	reviewHandler := &handlers.ReviewHandler{ReviewStore: reviewStoreInstance}
+	favoriteHandler := &handlers.FavoriteHandler{FavoriteStore: favoriteStoreInstance}
+	userHandler := &handlers.UserHandler{UserStore: userStoreInstance}
+	cartHandler := &handlers.CartHandler{CartStore: cartStoreInstance}
+	notificationHandler := &handlers.NotificationHandler{NotificationHub: notificationHub}
 
-	adminProductHandler := &adminhandlers.ProductHandler{Store: productStoreInstance}
-	adminOrderHandler := &adminhandlers.OrderHandler{Store: orderStoreInstance, Hub: notificationHub}
-	adminUserHandler := &adminhandlers.UserHandler{Store: userStoreInstance}
-	adminCouponHandler := &adminhandlers.CouponHandler{Store: couponStoreInstance}
+	adminProductHandler := &adminhandlers.ProductHandler{ProductStore: productStoreInstance}
+	adminOrderHandler := &adminhandlers.OrderHandler{OrderStore: orderStoreInstance, NotificationHub: notificationHub}
+	adminUserHandler := &adminhandlers.UserHandler{UserStore: userStoreInstance}
+	adminCouponHandler := &adminhandlers.CouponHandler{CouponStore: couponStoreInstance}
 	adminDashboardHandler := &adminhandlers.DashboardHandler{OrderStore: orderStoreInstance, UserStore: userStoreInstance}
 
 	return routes.NewRouter(

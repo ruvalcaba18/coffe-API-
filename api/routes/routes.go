@@ -68,6 +68,8 @@ func NewRouter(
 			// Orders
 			protectedRouter.Post("/orders", orderHandler.Checkout)
 			protectedRouter.Get("/orders", orderHandler.GetHistory)
+			protectedRouter.Get("/orders/latest", orderHandler.GetLatest)
+			protectedRouter.Get("/orders/pickups", orderHandler.GetPickups)
 			
 			// Shopping Cart
 			protectedRouter.Get("/cart", cartHandler.GetCart)

@@ -10,52 +10,52 @@ import (
 )
 
 type OrderHandler struct {
-	Store *orderstore.Store
-	Hub   *notifications.Hub
+	OrderStore      *orderstore.Store
+	NotificationHub *notifications.Hub
 }
 
-func (h *OrderHandler) GetAll(w http.ResponseWriter, r *http.Request) {
-	orders, err := h.Store.GetAll()
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+func (orderHandler *OrderHandler) GetAll(responseWriter http.ResponseWriter, request *http.Request) {
+	orderList, fetchError := orderHandler.OrderStore.GetAll()
+	if fetchError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(orders)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(orderList)
 }
 
-func (h *OrderHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	var input struct {
+func (orderHandler *OrderHandler) UpdateStatus(responseWriter http.ResponseWriter, request *http.Request) {
+	orderIdentifier := chi.URLParam(request, "id")
+	var statusInput struct {
 		Status string `json:"status"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if decodeError := json.NewDecoder(request.Body).Decode(&statusInput); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// 1. Get the order to know which user to notify
-	o, err := h.Store.GetByID(id)
-	if err != nil {
-		http.Error(w, "Order not found", http.StatusNotFound)
+	orderInstance, fetchError := orderHandler.OrderStore.GetByID(orderIdentifier)
+	if fetchError != nil {
+		http.Error(responseWriter, "Order not found", http.StatusNotFound)
 		return
 	}
 
 	// 2. Update in DB
-	if err := h.Store.UpdateStatus(id, input.Status); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if updateError := orderHandler.OrderStore.UpdateStatus(orderIdentifier, statusInput.Status); updateError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	// 3. Send real-time notification via WebSocket
-	h.Hub.SendToUser(o.UserID, map[string]interface{}{
+	orderHandler.NotificationHub.SendToUser(orderInstance.UserID, map[string]interface{}{
 		"type":     "ORDER_UPDATE",
-		"order_id": id,
-		"status":   input.Status,
+		"order_id": orderIdentifier,
+		"status":   statusInput.Status,
 		"message":  "¡Tu pedido ha cambiado de estado!",
 	})
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Order status updated and notified"})
+	responseWriter.WriteHeader(http.StatusOK)
+	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Order status updated and notified"})
 }

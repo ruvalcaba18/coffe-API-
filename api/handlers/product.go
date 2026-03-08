@@ -15,7 +15,7 @@ import (
  * Refactored to follow strictly declarative naming.
  */
 type ProductRepository interface {
-	GetAll(filter productmodel.Filter) ([]productmodel.Product, error)
+	GetAll(productFilter productmodel.Filter) ([]productmodel.Product, error)
 	GetByID(productID int) (productmodel.Product, error)
 	GetCategories() ([]string, error)
 }
@@ -25,10 +25,10 @@ type ProductRepository interface {
  * Refactored to eliminate all shorthands and follow strictly declarative naming.
  */
 type ProductHandler struct {
-	Store ProductRepository
+	ProductStore ProductRepository
 }
 
-func (handler *ProductHandler) GetAll(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (productHandler *ProductHandler) GetAll(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
 	queryParameters := httpRequest.URL.Query()
 
 	productFilter := productmodel.Filter{
@@ -43,7 +43,7 @@ func (handler *ProductHandler) GetAll(responseWriter webServer.ResponseWriter, h
 		productFilter.MaxPrice, _ = numberParsing.ParseFloat(maximumPrice, 64)
 	}
 
-	productList, fetchError := handler.Store.GetAll(productFilter)
+	productList, fetchError := productHandler.ProductStore.GetAll(productFilter)
 	if fetchError != nil {
 		webServer.Error(responseWriter, "Internal server error", webServer.StatusInternalServerError)
 		return
@@ -52,11 +52,11 @@ func (handler *ProductHandler) GetAll(responseWriter webServer.ResponseWriter, h
 	json.NewEncoder(responseWriter).Encode(dto.MapProductsToResponse(productList))
 }
 
-func (handler *ProductHandler) GetByID(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (productHandler *ProductHandler) GetByID(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
 	productIDString := chi.URLParam(httpRequest, "id")
 	productID, _ := numberParsing.Atoi(productIDString)
 
-	productInstance, fetchError := handler.Store.GetByID(productID)
+	productInstance, fetchError := productHandler.ProductStore.GetByID(productID)
 	if fetchError != nil {
 		webServer.Error(responseWriter, "Product not found", webServer.StatusNotFound)
 		return
@@ -65,8 +65,8 @@ func (handler *ProductHandler) GetByID(responseWriter webServer.ResponseWriter, 
 	json.NewEncoder(responseWriter).Encode(dto.MapProductToResponse(productInstance))
 }
 
-func (handler *ProductHandler) GetCategories(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
-	categoryList, fetchError := handler.Store.GetCategories()
+func (productHandler *ProductHandler) GetCategories(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+	categoryList, fetchError := productHandler.ProductStore.GetCategories()
 	if fetchError != nil {
 		webServer.Error(responseWriter, "Internal server error", webServer.StatusInternalServerError)
 		return
@@ -75,4 +75,3 @@ func (handler *ProductHandler) GetCategories(responseWriter webServer.ResponseWr
 	responseWriter.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(responseWriter).Encode(categoryList)
 }
-

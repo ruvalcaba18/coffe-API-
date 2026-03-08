@@ -9,58 +9,58 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
+var websocketUpgrader = websocket.Upgrader{
+	CheckOrigin: func(request *http.Request) bool {
 		return true
 	},
 }
 
 type NotificationHandler struct {
-	Hub *notifications.Hub
+	NotificationHub *notifications.Hub
 }
 
-func (h *NotificationHandler) HandleWS(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+func (notificationHandler *NotificationHandler) HandleWS(responseWriter http.ResponseWriter, request *http.Request) {
+	currentUserID := request.Context().Value(middleware.UserIDKey).(int)
 
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
+	websocketConnection, upgradeError := websocketUpgrader.Upgrade(responseWriter, request, nil)
+	if upgradeError != nil {
 		return
 	}
-	defer conn.Close()
+	defer websocketConnection.Close()
 
-	client := &notifications.Client{
-		Hub:    h.Hub,
-		UserID: userID,
-		Conn:   conn,
+	notificationClient := &notifications.Client{
+		Hub:    notificationHandler.NotificationHub,
+		UserID: currentUserID,
+		Conn:   websocketConnection,
 		Send:   make(chan interface{}, 256),
 	}
 
-	h.Hub.AddClient(client)
-	defer h.Hub.RemoveClient(client)
+	notificationHandler.NotificationHub.AddClient(notificationClient)
+	defer notificationHandler.NotificationHub.RemoveClient(notificationClient)
 
 	// Iniciar la goroutine de escritura asíncrona
-	go client.WritePump()
+	go notificationClient.WritePump()
 
 	// Keep connection alive and read incoming messages
 	for {
-		var msg map[string]interface{}
-		err := conn.ReadJSON(&msg)
-		if err != nil {
+		var incomingMessage map[string]interface{}
+		readingError := websocketConnection.ReadJSON(&incomingMessage)
+		if readingError != nil {
 			break
 		}
 
 		// Handle Incoming Message
-		if msg["type"] == "chat_message" {
+		if incomingMessage["type"] == "chat_message" {
 			// Broadcast to all (for now) or process
 			// Example: Auto-reply from Barista
 			go func() {
 				time.Sleep(1 * time.Second)
-				reply := map[string]interface{}{
+				autoReplyMessage := map[string]interface{}{
 					"type":    "chat_message",
 					"message": "¡Recibido! Un barista se pondrá en contacto contigo pronto.",
 					"sender":  "support",
 				}
-				h.Hub.SendToUser(userID, reply)
+				notificationHandler.NotificationHub.SendToUser(currentUserID, autoReplyMessage)
 			}()
 		}
 	}

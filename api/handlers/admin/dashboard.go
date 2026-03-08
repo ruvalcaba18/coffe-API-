@@ -12,27 +12,27 @@ type DashboardHandler struct {
 	UserStore  *userstore.Store
 }
 
-func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
-	orderStats, err := h.OrderStore.GetDashboardStats()
-	if err != nil {
-		http.Error(w, "Failed to fetch order statistics", http.StatusInternalServerError)
+func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseWriter, request *http.Request) {
+	orderStatistics, orderStatsError := dashboardHandler.OrderStore.GetDashboardStats()
+	if orderStatsError != nil {
+		http.Error(responseWriter, "Failed to fetch order statistics", http.StatusInternalServerError)
 		return
 	}
 
 	// Fetch user count
-	userCount, err := h.UserStore.GetTotalCount()
-	if err != nil {
+	totalUserCount, userCountError := dashboardHandler.UserStore.GetTotalCount()
+	if userCountError != nil {
 		// Non-critical, log and continue
-		userCount = 0
+		totalUserCount = 0
 	}
 
-	response := map[string]interface{}{
-		"orders": orderStats,
+	dashboardResponse := map[string]interface{}{
+		"orders": orderStatistics,
 		"users": map[string]interface{}{
-			"total_count": userCount,
+			"total_count": totalUserCount,
 		},
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(dashboardResponse)
 }

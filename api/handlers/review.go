@@ -10,48 +10,48 @@ import (
 )
 
 type ReviewHandler struct {
-	Store *reviewstore.Store
+	ReviewStore *reviewstore.Store
 }
 
-func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(middleware.UserIDKey).(int)
+func (reviewHandler *ReviewHandler) Create(responseWriter http.ResponseWriter, request *http.Request) {
+	userID := request.Context().Value(middleware.UserIDKey).(int)
 
-	var rev reviewmodel.Review
-	if err := json.NewDecoder(r.Body).Decode(&rev); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	var productReview reviewmodel.Review
+	if decodeError := json.NewDecoder(request.Body).Decode(&productReview); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if rev.ProductID == 0 {
-		http.Error(w, "product_id is required", http.StatusBadRequest)
+	if productReview.ProductID == 0 {
+		http.Error(responseWriter, "product_id is required", http.StatusBadRequest)
 		return
 	}
 
-	rev.UserID = userID
+	productReview.UserID = userID
 
-	if err := h.Store.Create(&rev); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if creationError := reviewHandler.ReviewStore.Create(&productReview); creationError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(rev)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	responseWriter.WriteHeader(http.StatusCreated)
+	json.NewEncoder(responseWriter).Encode(productReview)
 }
 
-func (h *ReviewHandler) GetByProduct(w http.ResponseWriter, r *http.Request) {
-	productID, _ := strconv.Atoi(r.URL.Query().Get("product_id"))
-	if productID == 0 {
-		http.Error(w, "product_id query param is required", http.StatusBadRequest)
+func (reviewHandler *ReviewHandler) GetByProduct(responseWriter http.ResponseWriter, request *http.Request) {
+	productIdentifier, _ := strconv.Atoi(request.URL.Query().Get("product_id"))
+	if productIdentifier == 0 {
+		http.Error(responseWriter, "product_id query param is required", http.StatusBadRequest)
 		return
 	}
 
-	reviews, err := h.Store.GetByProductID(productID)
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	reviewList, fetchError := reviewHandler.ReviewStore.GetByProductID(productIdentifier)
+	if fetchError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(reviews)
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(reviewList)
 }

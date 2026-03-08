@@ -12,90 +12,89 @@ import (
 )
 
 type ProductHandler struct {
-	Store *productstore.Store
+	ProductStore *productstore.Store
 }
 
-func (h *ProductHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var req dto.ProductRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+func (productHandler *ProductHandler) Create(responseWriter http.ResponseWriter, request *http.Request) {
+	var productRequest dto.ProductRequest
+	if decodeError := json.NewDecoder(request.Body).Decode(&productRequest); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	p := product.Product{
-		Name:        req.Name,
-		Description: req.Description,
-		Price:       req.Price,
-		Category:    req.Category,
+	productInstance := product.Product{
+		Name:        productRequest.Name,
+		Description: productRequest.Description,
+		Price:       productRequest.Price,
+		Category:    productRequest.Category,
 	}
 
-	if err := h.Store.Create(&p); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if createError := productHandler.ProductStore.Create(&productInstance); createError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(dto.MapProductToResponse(p))
+	responseWriter.WriteHeader(http.StatusCreated)
+	json.NewEncoder(responseWriter).Encode(dto.MapProductToResponse(productInstance))
 }
 
-func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	var req dto.ProductRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+func (productHandler *ProductHandler) Update(responseWriter http.ResponseWriter, request *http.Request) {
+	productIdentifier, _ := strconv.Atoi(chi.URLParam(request, "id"))
+	var productRequest dto.ProductRequest
+	if decodeError := json.NewDecoder(request.Body).Decode(&productRequest); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	
-	p := product.Product{
-		ID:          id,
-		Name:        req.Name,
-		Description: req.Description,
-		Price:       req.Price,
-		Category:    req.Category,
+	productInstance := product.Product{
+		ID:          productIdentifier,
+		Name:        productRequest.Name,
+		Description: productRequest.Description,
+		Price:       productRequest.Price,
+		Category:    productRequest.Category,
 	}
 
-	if err := h.Store.Update(&p); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if updateError := productHandler.ProductStore.Update(&productInstance); updateError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(dto.MapProductToResponse(p))
+	json.NewEncoder(responseWriter).Encode(dto.MapProductToResponse(productInstance))
 }
 
-func (h *ProductHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
+func (productHandler *ProductHandler) Delete(responseWriter http.ResponseWriter, request *http.Request) {
+	productIdentifier, _ := strconv.Atoi(chi.URLParam(request, "id"))
 
-	if err := h.Store.Delete(id); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if deletionError := productHandler.ProductStore.Delete(productIdentifier); deletionError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	responseWriter.WriteHeader(http.StatusNoContent)
 }
 
-func (h *ProductHandler) CreateBulk(w http.ResponseWriter, r *http.Request) {
-	var reqs []dto.ProductRequest
-	if err := json.NewDecoder(r.Body).Decode(&reqs); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+func (productHandler *ProductHandler) CreateBulk(responseWriter http.ResponseWriter, request *http.Request) {
+	var productRequests []dto.ProductRequest
+	if decodeError := json.NewDecoder(request.Body).Decode(&productRequests); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	var products []product.Product
-	for _, req := range reqs {
-		products = append(products, product.Product{
-			Name:        req.Name,
-			Description: req.Description,
-			Price:       req.Price,
-			Category:    req.Category,
+	var productList []product.Product
+	for _, productRequest := range productRequests {
+		productList = append(productList, product.Product{
+			Name:        productRequest.Name,
+			Description: productRequest.Description,
+			Price:       productRequest.Price,
+			Category:    productRequest.Category,
 		})
 	}
 
-	if err := h.Store.CreateBulk(products); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if bulkCreateError := productHandler.ProductStore.CreateBulk(productList); bulkCreateError != nil {
+		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Bulk creation successful"})
+	responseWriter.WriteHeader(http.StatusCreated)
+	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Bulk creation successful"})
 }
-
