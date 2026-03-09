@@ -42,7 +42,11 @@ func (productStore *Store) GetAll(filter productmodel.Filter) ([]productmodel.Pr
 	}
 
 	// Dynamic Query Construction
-	baseQuery := "SELECT id, name, description, price, category FROM products WHERE 1=1"
+	baseQuery := `
+		SELECT p.id, p.name, p.description, p.price, p.category, 
+		       p.average_rating, p.review_count
+		FROM products p
+		WHERE 1=1`
 	var queryArguments []interface{}
 	argumentCounter := 1
 
@@ -62,10 +66,12 @@ func (productStore *Store) GetAll(filter productmodel.Filter) ([]productmodel.Pr
 		argumentCounter++
 	}
 	if filter.MaxPrice > 0 {
-		baseQuery += outputFormatting.Sprintf(" AND price <= $%d", argumentCounter)
+		baseQuery += outputFormatting.Sprintf(" AND p.price <= $%d", argumentCounter)
 		queryArguments = append(queryArguments, filter.MaxPrice)
 		argumentCounter++
 	}
+
+	// No longer need GROUP BY because we aren't using aggregate functions
 
 	rows, queryError := productStore.databaseConnection.Query(baseQuery, queryArguments...)
 	if queryError != nil {
@@ -76,7 +82,15 @@ func (productStore *Store) GetAll(filter productmodel.Filter) ([]productmodel.Pr
 	var productList []productmodel.Product
 	for rows.Next() {
 		var productInstance productmodel.Product
-		if scanError := rows.Scan(&productInstance.ID, &productInstance.Name, &productInstance.Description, &productInstance.Price, &productInstance.Category); scanError != nil {
+		if scanError := rows.Scan(
+			&productInstance.ID, 
+			&productInstance.Name, 
+			&productInstance.Description, 
+			&productInstance.Price, 
+			&productInstance.Category,
+			&productInstance.AverageRating,
+			&productInstance.ReviewCount,
+		); scanError != nil {
 			return nil, scanError
 		}
 		productList = append(productList, productInstance)
@@ -103,8 +117,21 @@ func (productStore *Store) GetByID(productID int) (productmodel.Product, error) 
 	}
 
 	var productInstance productmodel.Product
-	fetchError := productStore.databaseConnection.QueryRow("SELECT id, name, description, price, category FROM products WHERE id = $1", productID).
-		Scan(&productInstance.ID, &productInstance.Name, &productInstance.Description, &productInstance.Price, &productInstance.Category)
+	query := `
+		SELECT id, name, description, price, category, average_rating, review_count
+		FROM products
+		WHERE id = $1`
+	
+	fetchError := productStore.databaseConnection.QueryRow(query, productID).
+		Scan(
+			&productInstance.ID, 
+			&productInstance.Name, 
+			&productInstance.Description, 
+			&productInstance.Price, 
+			&productInstance.Category,
+			&productInstance.AverageRating,
+			&productInstance.ReviewCount,
+		)
 	
 	if fetchError == nil {
 		if serializedData, serializationError := json.Marshal(productInstance); serializationError == nil {

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/store/order"
 	userstore "coffeebase-api/internal/store/user"
 	"encoding/json"
@@ -19,16 +20,20 @@ func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseW
 		return
 	}
 
-	// Fetch user count
 	totalUserCount, userCountError := dashboardHandler.UserStore.GetTotalCount()
 	if userCountError != nil {
-		// Non-critical, log and continue
 		totalUserCount = 0
 	}
 
-	dashboardResponse := map[string]interface{}{
-		"orders": orderStatistics,
-		"users": map[string]interface{}{
+	dashboardResponse := dto.DashboardStatsDTO{
+		Orders: dto.DashboardOrderStatsDTO{
+			TotalOrders:       orderStatistics.TotalOrders,
+			TotalRevenue:      orderStatistics.TotalRevenue,
+			AverageOrderValue: orderStatistics.AverageOrderValue,
+			PendingOrders:     orderStatistics.PendingOrders,
+			TakeoutOrders:     orderStatistics.TakeoutOrders,
+		},
+		Users: map[string]interface{}{
 			"total_count": totalUserCount,
 		},
 	}

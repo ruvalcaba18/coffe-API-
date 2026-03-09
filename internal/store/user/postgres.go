@@ -26,15 +26,15 @@ func (s *Store) Create(u *usermodel.User) error {
 
 func (s *Store) GetByEmail(email string) (usermodel.User, error) {
 	var u usermodel.User
-	query := `SELECT id, username, email, password, language, avatar_url, role, created_at FROM users WHERE email = $1`
-	err := s.db.QueryRow(query, email).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, &u.CreatedAt)
+	query := `SELECT id, username, email, password, language, avatar_url, role, total_orders_completed, total_spent, created_at FROM users WHERE email = $1`
+	err := s.db.QueryRow(query, email).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, &u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt)
 	return u, err
 }
 
 func (s *Store) GetByID(id int) (usermodel.User, error) {
 	var u usermodel.User
-	query := `SELECT id, username, email, password, language, avatar_url, role, created_at FROM users WHERE id = $1`
-	err := s.db.QueryRow(query, id).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, &u.CreatedAt)
+	query := `SELECT id, username, email, password, language, avatar_url, role, total_orders_completed, total_spent, created_at FROM users WHERE id = $1`
+	err := s.db.QueryRow(query, id).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, &u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt)
 	return u, err
 }
 
@@ -57,7 +57,7 @@ func (s *Store) GetTotalCount() (int, error) {
 }
 
 func (s *Store) GetAll() ([]usermodel.User, error) {
-	rows, err := s.db.Query(`SELECT id, username, email, language, avatar_url, role, created_at FROM users ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id, username, email, language, avatar_url, role, total_orders_completed, total_spent, created_at FROM users ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (s *Store) GetAll() ([]usermodel.User, error) {
 	var users []usermodel.User
 	for rows.Next() {
 		var u usermodel.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Language, &u.AvatarURL, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Language, &u.AvatarURL, &u.Role, &u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)

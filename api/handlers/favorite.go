@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/middleware"
 	"coffeebase-api/internal/store/favorite"
 	"encoding/json"
@@ -17,9 +18,7 @@ type FavoriteHandler struct {
 func (favoriteHandler *FavoriteHandler) Add(responseWriter http.ResponseWriter, request *http.Request) {
 	userID := request.Context().Value(middleware.UserIDKey).(int)
 
-	var addInput struct {
-		ProductID int `json:"product_id"`
-	}
+	var addInput dto.FavoriteRequest
 	if decodeError := json.NewDecoder(request.Body).Decode(&addInput); decodeError != nil {
 		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
@@ -57,5 +56,5 @@ func (favoriteHandler *FavoriteHandler) GetUserFavorites(responseWriter http.Res
 	}
 
 	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(favoriteList)
+	json.NewEncoder(responseWriter).Encode(dto.MapProductsToResponse(favoriteList))
 }

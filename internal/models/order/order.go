@@ -18,5 +18,6 @@ type Order struct {
 	IsPickup       bool        `json:"is_pickup"`
 	PickupTime     *time.Time  `json:"pickup_time,omitempty"`
 	PickupLocation string      `json:"pickup_location,omitempty"`
+	ItemsCount     int         `json:"items_count"`
 	CreatedAt      time.Time   `json:"created_at"`
 }

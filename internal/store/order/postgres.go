@@ -53,17 +53,17 @@ func (orderStore *Store) CreateWithTx(databaseTransaction *sql.Tx, orderInstance
 
 func (orderStore *Store) GetByID(orderID string) (ordermodel.Order, error) {
 	var orderInstance ordermodel.Order
-	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, created_at FROM orders WHERE id = $1`
+	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, items_count, created_at FROM orders WHERE id = $1`
 	queryError := orderStore.databaseConnection.QueryRow(selectionQuery, orderID).Scan(
 		&orderInstance.ID, &orderInstance.UserID, &orderInstance.Total, &orderInstance.Status,
 		&orderInstance.CouponCode, &orderInstance.DiscountAmount, &orderInstance.IsPickup,
-		&orderInstance.PickupTime, &orderInstance.PickupLocation, &orderInstance.CreatedAt,
+		&orderInstance.PickupTime, &orderInstance.PickupLocation, &orderInstance.ItemsCount, &orderInstance.CreatedAt,
 	)
 	return orderInstance, queryError
 }
 
 func (orderStore *Store) GetByUserID(userID int) ([]ordermodel.Order, error) {
-	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC`
+	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, items_count, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC`
 	rows, queryError := orderStore.databaseConnection.Query(selectionQuery, userID)
 	if queryError != nil {
 		return nil, queryError
@@ -86,11 +86,11 @@ func (orderStore *Store) GetByUserID(userID int) ([]ordermodel.Order, error) {
 
 func (orderStore *Store) GetLatestByUserID(userID int) (ordermodel.Order, error) {
 	var orderInstance ordermodel.Order
-	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`
+	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, items_count, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`
 	queryError := orderStore.databaseConnection.QueryRow(selectionQuery, userID).Scan(
 		&orderInstance.ID, &orderInstance.UserID, &orderInstance.Total, &orderInstance.Status,
 		&orderInstance.CouponCode, &orderInstance.DiscountAmount, &orderInstance.IsPickup,
-		&orderInstance.PickupTime, &orderInstance.PickupLocation, &orderInstance.CreatedAt,
+		&orderInstance.PickupTime, &orderInstance.PickupLocation, &orderInstance.ItemsCount, &orderInstance.CreatedAt,
 	)
 	if queryError == nil {
 		orderStore.fillOrderItems(&orderInstance)
@@ -99,7 +99,7 @@ func (orderStore *Store) GetLatestByUserID(userID int) (ordermodel.Order, error)
 }
 
 func (orderStore *Store) GetPickupsByUserID(userID int) ([]ordermodel.Order, error) {
-	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, created_at FROM orders WHERE user_id = $1 AND is_pickup = TRUE ORDER BY created_at DESC`
+	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, items_count, created_at FROM orders WHERE user_id = $1 AND is_pickup = TRUE ORDER BY created_at DESC`
 	rows, queryError := orderStore.databaseConnection.Query(selectionQuery, userID)
 	if queryError != nil {
 		return nil, queryError
@@ -124,7 +124,7 @@ func (orderStore *Store) scanOrder(rows *sql.Rows) (ordermodel.Order, error) {
 	err := rows.Scan(
 		&orderInstance.ID, &orderInstance.UserID, &orderInstance.Total, &orderInstance.Status,
 		&orderInstance.CouponCode, &orderInstance.DiscountAmount, &orderInstance.IsPickup,
-		&orderInstance.PickupTime, &orderInstance.PickupLocation, &orderInstance.CreatedAt,
+		&orderInstance.PickupTime, &orderInstance.PickupLocation, &orderInstance.ItemsCount, &orderInstance.CreatedAt,
 	)
 	return orderInstance, err
 }
@@ -142,7 +142,7 @@ func (orderStore *Store) fillOrderItems(orderInstance *ordermodel.Order) {
 }
 
 func (orderStore *Store) GetAll() ([]ordermodel.Order, error) {
-	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, created_at FROM orders ORDER BY created_at DESC`
+	selectionQuery := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, items_count, created_at FROM orders ORDER BY created_at DESC`
 	rows, queryError := orderStore.databaseConnection.Query(selectionQuery)
 	if queryError != nil {
 		return nil, queryError

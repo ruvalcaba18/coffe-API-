@@ -9,6 +9,8 @@ type User struct {
 	Password  string    `json:"-"`
 	Language  string    `json:"language"` // es, en, fr, de, gsw
 	AvatarURL string    `json:"avatar_url"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+	Role                 string    `json:"role"`
+	TotalOrdersCompleted  int       `json:"total_orders_completed"`
+	TotalSpent           float64   `json:"total_spent"`
+	CreatedAt            time.Time `json:"created_at"`
 }

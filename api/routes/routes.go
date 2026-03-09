@@ -54,62 +54,18 @@ func NewRouter(
 		// Protected routes
 		apiV1Router.Group(func(protectedRouter chi.Router) {
 			protectedRouter.Use(custom_middleware.AuthMiddleware)
-			
-			// Account/Profile
-			protectedRouter.Get("/profile", userHandler.GetProfile)
-			protectedRouter.Patch("/profile", userHandler.UpdateLanguage)
-			protectedRouter.Post("/profile/avatar", userHandler.UploadAvatar)
 
-			// Products
-			protectedRouter.Get("/products", productHandler.GetAll)
-			protectedRouter.Get("/products/categories", productHandler.GetCategories)
-			protectedRouter.Get("/products/{id}", productHandler.GetByID)
-			
-			// Orders
-			protectedRouter.Post("/orders", orderHandler.Checkout)
-			protectedRouter.Get("/orders", orderHandler.GetHistory)
-			protectedRouter.Get("/orders/latest", orderHandler.GetLatest)
-			protectedRouter.Get("/orders/pickups", orderHandler.GetPickups)
-			
-			// Shopping Cart
-			protectedRouter.Get("/cart", cartHandler.GetCart)
-			protectedRouter.Patch("/cart", cartHandler.UpdateItem)
-			
-			// Reviews
-			protectedRouter.Post("/reviews", reviewHandler.Create)
-			protectedRouter.Get("/reviews", reviewHandler.GetByProduct)
-			
-			// Favorites
-			protectedRouter.Get("/favorites", favoriteHandler.GetUserFavorites)
-			protectedRouter.Post("/favorites", favoriteHandler.Add)
-			protectedRouter.Delete("/favorites/{id}", favoriteHandler.Remove)
+			registerUserRoutes(protectedRouter, userHandler)
+			registerProductRoutes(protectedRouter, productHandler)
+			registerOrderRoutes(protectedRouter, orderHandler)
+			registerCartRoutes(protectedRouter, cartHandler)
+			registerReviewRoutes(protectedRouter, reviewHandler)
+			registerFavoriteRoutes(protectedRouter, favoriteHandler)
 
 			// Admin Section
 			protectedRouter.Group(func(adminRouter chi.Router) {
 				adminRouter.Use(custom_middleware.AdminMiddleware)
-				
-				// Admin Products management
-				adminRouter.Post("/admin/products", adminProductHandler.Create)
-				adminRouter.Post("/admin/products/bulk", adminProductHandler.CreateBulk)
-				adminRouter.Put("/admin/products/{id}", adminProductHandler.Update)
-				adminRouter.Delete("/admin/products/{id}", adminProductHandler.Delete)
-				
-				// Admin Orders management
-				adminRouter.Get("/admin/orders", adminOrderHandler.GetAll)
-				adminRouter.Patch("/admin/orders/{id}", adminOrderHandler.UpdateStatus)
-
-				// Admin User management
-				adminRouter.Get("/admin/users", adminUserHandler.GetAll)
-				adminRouter.Patch("/admin/users/role/{id}", adminUserHandler.UpdateRole)
-
-				// Admin Coupons management
-				adminRouter.Post("/admin/coupons", adminCouponHandler.Create)
-				adminRouter.Get("/admin/coupons", adminCouponHandler.GetAll)
-				adminRouter.Patch("/admin/coupons/status/{id}", adminCouponHandler.ToggleStatus)
-				adminRouter.Delete("/admin/coupons/{id}", adminCouponHandler.Delete)
-
-				// Admin Dashboard
-				adminRouter.Get("/admin/dashboard/stats", adminDashboardHandler.GetStats)
+				registerAdminRoutes(adminRouter, adminProductHandler, adminOrderHandler, adminUserHandler, adminCouponHandler, adminDashboardHandler)
 			})
 		})
 	})
@@ -117,8 +73,73 @@ func NewRouter(
 	return router
 }
 
-// FileServer conveniently sets up a http.FileServer handler to serve
-// static files from a http.FileSystem.
+func registerUserRoutes(router chi.Router, handler *handlers.UserHandler) {
+	router.Get("/profile", handler.GetProfile)
+	router.Patch("/profile", handler.UpdateLanguage)
+	router.Post("/profile/avatar", handler.UploadAvatar)
+}
+
+func registerProductRoutes(router chi.Router, handler *handlers.ProductHandler) {
+	router.Get("/products", handler.GetAll)
+	router.Get("/products/categories", handler.GetCategories)
+	router.Get("/products/{id}", handler.GetByID)
+}
+
+func registerOrderRoutes(router chi.Router, handler *handlers.OrderHandler) {
+	router.Post("/orders", handler.Checkout)
+	router.Get("/orders", handler.GetHistory)
+	router.Get("/orders/latest", handler.GetLatest)
+	router.Get("/orders/pickups", handler.GetPickups)
+}
+
+func registerCartRoutes(router chi.Router, handler *handlers.CartHandler) {
+	router.Get("/cart", handler.GetCart)
+	router.Patch("/cart", handler.UpdateItem)
+}
+
+func registerReviewRoutes(router chi.Router, handler *handlers.ReviewHandler) {
+	router.Post("/reviews", handler.Create)
+	router.Get("/reviews", handler.GetByProduct)
+}
+
+func registerFavoriteRoutes(router chi.Router, handler *handlers.FavoriteHandler) {
+	router.Get("/favorites", handler.GetUserFavorites)
+	router.Post("/favorites", handler.Add)
+	router.Delete("/favorites/{id}", handler.Remove)
+}
+
+func registerAdminRoutes(
+	router chi.Router,
+	productH *adminhandlers.ProductHandler,
+	orderH *adminhandlers.OrderHandler,
+	userH *adminhandlers.UserHandler,
+	couponH *adminhandlers.CouponHandler,
+	dashboardH *adminhandlers.DashboardHandler,
+) {
+	// Admin Products management
+	router.Post("/admin/products", productH.Create)
+	router.Post("/admin/products/bulk", productH.CreateBulk)
+	router.Put("/admin/products/{id}", productH.Update)
+	router.Delete("/admin/products/{id}", productH.Delete)
+
+	// Admin Orders management
+	router.Get("/admin/orders", orderH.GetAll)
+	router.Patch("/admin/orders/{id}", orderH.UpdateStatus)
+
+	// Admin User management
+	router.Get("/admin/users", userH.GetAll)
+	router.Patch("/admin/users/role/{id}", userH.UpdateRole)
+
+	// Admin Coupons management
+	router.Post("/admin/coupons", couponH.Create)
+	router.Get("/admin/coupons", couponH.GetAll)
+	router.Patch("/admin/coupons/status/{id}", couponH.ToggleStatus)
+	router.Delete("/admin/coupons/{id}", couponH.Delete)
+
+	// Admin Dashboard
+	router.Get("/admin/dashboard/stats", dashboardH.GetStats)
+}
+
 func FileServer(router chi.Router, path string, root webServer.FileSystem) {
 	if stringManipulation.ContainsAny(path, "{}*") {
 		panic("FileServer does not permit any URL parameters.")
@@ -131,6 +152,12 @@ func FileServer(router chi.Router, path string, root webServer.FileSystem) {
 	path += "*"
 
 	router.Get(path, func(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+		// Extra security layer: Block directory traversal attempts explicitly
+		if stringManipulation.Contains(httpRequest.URL.Path, "..") {
+			webServer.Error(responseWriter, "Invalid path", webServer.StatusBadRequest)
+			return
+		}
+
 		routeContext := chi.RouteContext(httpRequest.Context())
 		pathPrefix := stringManipulation.TrimSuffix(routeContext.RoutePattern(), "/*")
 		fileServerInstance := webServer.StripPrefix(pathPrefix, webServer.FileServer(root))

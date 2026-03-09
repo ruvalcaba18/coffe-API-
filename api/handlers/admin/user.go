@@ -21,20 +21,7 @@ func (userHandler *UserHandler) GetAll(responseWriter http.ResponseWriter, reque
 		return
 	}
 
-	var userResponses []dto.UserResponse
-	for _, userInstance := range userList {
-		userResponses = append(userResponses, dto.UserResponse{
-			ID:        userInstance.ID,
-			Username:  userInstance.Username,
-			Email:     userInstance.Email,
-			Language:  userInstance.Language,
-			AvatarURL: userInstance.AvatarURL,
-			Role:      userInstance.Role,
-			CreatedAt: userInstance.CreatedAt,
-		})
-	}
-
-	json.NewEncoder(responseWriter).Encode(userResponses)
+	json.NewEncoder(responseWriter).Encode(dto.MapUsersToResponse(userList))
 }
 
 func (userHandler *UserHandler) UpdateRole(responseWriter http.ResponseWriter, request *http.Request) {

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/models/coupon"
 	couponstore "coffeebase-api/internal/store/coupon"
 	"encoding/json"
@@ -15,19 +16,32 @@ type CouponHandler struct {
 }
 
 func (couponHandler *CouponHandler) Create(responseWriter http.ResponseWriter, request *http.Request) {
-	var couponInstance coupon.Coupon
-	if decodeError := json.NewDecoder(request.Body).Decode(&couponInstance); decodeError != nil {
+	var couponInput dto.CouponRequest
+	if decodeError := json.NewDecoder(request.Body).Decode(&couponInput); decodeError != nil {
 		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if createError := couponHandler.CouponStore.Create(&couponInstance); createError != nil {
+	couponInstance := &coupon.Coupon{
+		Code:              couponInput.Code,
+		DiscountType:      couponInput.DiscountType,
+		DiscountValue:     couponInput.DiscountValue,
+		MinPurchaseAmount: couponInput.MinPurchaseAmount,
+		MaxDiscountAmount: couponInput.MaxDiscountAmount,
+		StartDate:         couponInput.StartDate,
+		EndDate:           couponInput.EndDate,
+		UsageLimit:        couponInput.UsageLimit,
+		IsActive:          couponInput.IsActive,
+	}
+
+	if createError := couponHandler.CouponStore.Create(couponInstance); createError != nil {
 		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	responseWriter.Header().Set("Content-Type", "application/json")
 	responseWriter.WriteHeader(http.StatusCreated)
-	json.NewEncoder(responseWriter).Encode(couponInstance)
+	json.NewEncoder(responseWriter).Encode(dto.MapCouponToResponse(*couponInstance))
 }
 
 func (couponHandler *CouponHandler) GetAll(responseWriter http.ResponseWriter, request *http.Request) {
@@ -38,7 +52,7 @@ func (couponHandler *CouponHandler) GetAll(responseWriter http.ResponseWriter, r
 	}
 
 	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(couponList)
+	json.NewEncoder(responseWriter).Encode(dto.MapCouponsToResponse(couponList))
 }
 
 func (couponHandler *CouponHandler) ToggleStatus(responseWriter http.ResponseWriter, request *http.Request) {

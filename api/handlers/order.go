@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/middleware"
 	ordermodel "coffeebase-api/internal/models/order"
 	productmodel "coffeebase-api/internal/models/product"
@@ -34,13 +35,11 @@ type OrderHandler struct {
 func (orderHandler *OrderHandler) Checkout(responseWriter http.ResponseWriter, request *http.Request) {
 	userID := request.Context().Value(middleware.UserIDKey).(int)
 
-	var checkoutInput struct {
-		CouponCode     string     `json:"coupon_code"`
-		IsPickup       bool       `json:"is_pickup"`
-		PickupTime     *time.Time `json:"pickup_time"`
-		PickupLocation string     `json:"pickup_location"`
+	var checkoutInput dto.CheckoutRequest
+	if decodeError := json.NewDecoder(request.Body).Decode(&checkoutInput); decodeError != nil {
+		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
+		return
 	}
-	json.NewDecoder(request.Body).Decode(&checkoutInput)
 
 	orderResult, checkoutError := orderHandler.OrderService.Checkout(request.Context(), userID, checkoutInput.CouponCode, checkoutInput.IsPickup, checkoutInput.PickupTime, checkoutInput.PickupLocation)
 	if checkoutError != nil {
@@ -50,7 +49,7 @@ func (orderHandler *OrderHandler) Checkout(responseWriter http.ResponseWriter, r
 
 	responseWriter.Header().Set("Content-Type", "application/json")
 	responseWriter.WriteHeader(http.StatusCreated)
-	json.NewEncoder(responseWriter).Encode(orderResult)
+	json.NewEncoder(responseWriter).Encode(dto.MapOrderToResponse(*orderResult))
 }
 
 func (orderHandler *OrderHandler) GetHistory(responseWriter http.ResponseWriter, request *http.Request) {
@@ -61,7 +60,7 @@ func (orderHandler *OrderHandler) GetHistory(responseWriter http.ResponseWriter,
 		return
 	}
 	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(orderHistory)
+	json.NewEncoder(responseWriter).Encode(dto.MapOrdersToResponse(orderHistory))
 }
 
 func (orderHandler *OrderHandler) GetLatest(responseWriter http.ResponseWriter, request *http.Request) {
@@ -72,7 +71,7 @@ func (orderHandler *OrderHandler) GetLatest(responseWriter http.ResponseWriter, 
 		return
 	}
 	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(latestOrder)
+	json.NewEncoder(responseWriter).Encode(dto.MapOrderToResponse(latestOrder))
 }
 
 func (orderHandler *OrderHandler) GetPickups(responseWriter http.ResponseWriter, request *http.Request) {
@@ -83,7 +82,7 @@ func (orderHandler *OrderHandler) GetPickups(responseWriter http.ResponseWriter,
 		return
 	}
 	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(pickupOrders)
+	json.NewEncoder(responseWriter).Encode(dto.MapOrdersToResponse(pickupOrders))
 }
 
 func (orderHandler *OrderHandler) Create(responseWriter http.ResponseWriter, request *http.Request) {

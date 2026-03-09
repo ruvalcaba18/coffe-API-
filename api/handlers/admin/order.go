@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/notifications"
 	orderstore "coffeebase-api/internal/store/order"
 	"encoding/json"
@@ -22,7 +23,7 @@ func (orderHandler *OrderHandler) GetAll(responseWriter http.ResponseWriter, req
 	}
 
 	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(orderList)
+	json.NewEncoder(responseWriter).Encode(dto.MapOrdersToResponse(orderList))
 }
 
 func (orderHandler *OrderHandler) UpdateStatus(responseWriter http.ResponseWriter, request *http.Request) {
