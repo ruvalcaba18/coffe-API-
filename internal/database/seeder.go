@@ -4,9 +4,9 @@ import (
 	"coffeebase-api/internal/auth"
 	"database/sql"
 	"log"
+	stringManipulation "strings"
 )
 
-// SeedDatabase inserts initial default users, like super admins.
 func SeedDatabase(db *sql.DB) error {
 	superAdmins := []struct {
 		Username string
@@ -15,9 +15,9 @@ func SeedDatabase(db *sql.DB) error {
 		Role     string
 	}{
 		{
-			Username: "jael",
+			Username: "Jael Admin",
 			Email:    "jael.ruvalcaba@uabc.edu.mx",
-			Password: "user123!",
+			Password: "User123!",
 			Role:     "superadmin",
 		},
 		{
@@ -29,18 +29,19 @@ func SeedDatabase(db *sql.DB) error {
 	}
 
 	for _, admin := range superAdmins {
+		admin.Email = stringManipulation.ToLower(stringManipulation.TrimSpace(admin.Email))
 		var exists bool
-		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", admin.Email).Scan(&exists)
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = LOWER($1))", admin.Email).Scan(&exists)
+		if err != nil {
+			return err
+		}
+
+		hashed, err := auth.HashPassword(admin.Password)
 		if err != nil {
 			return err
 		}
 
 		if !exists {
-			hashed, err := auth.HashPassword(admin.Password)
-			if err != nil {
-				return err
-			}
-
 			_, err = db.Exec(`
 				INSERT INTO users (username, email, password, language, role) 
 				VALUES ($1, $2, $3, 'es', $4)`,
@@ -50,6 +51,16 @@ func SeedDatabase(db *sql.DB) error {
 				return err
 			}
 			log.Printf("✅ Seeded super admin: %s (%s)", admin.Username, admin.Email)
+		} else {
+			_, err = db.Exec(`
+				UPDATE users SET role = $1, password = $2, username = $3
+				WHERE email = $4`,
+				admin.Role, hashed, admin.Username, admin.Email,
+			)
+			if err != nil {
+				return err
+			}
+			log.Printf("🔄 Updated super admin: %s (%s)", admin.Username, admin.Email)
 		}
 	}
 

@@ -29,8 +29,15 @@ func NewConnection() (*sql.DB, error) {
 		dbname = "coffeeshop"
 	}
 
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
+	// Formato de conexión tipo URL: postgres://user:pass@host:port/dbname?sslmode=disable
+	// Si no hay contraseña, se omite esa parte
+	authPart := user
+	if password != "" {
+		authPart = fmt.Sprintf("%s:%s", user, password)
+	}
+
+	connStr := fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=disable",
+		authPart, host, port, dbname)
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {

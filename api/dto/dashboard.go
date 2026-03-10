@@ -6,7 +6,8 @@ type DashboardOrderStatsDTO struct {
 	TotalRevenue      float64 `json:"total_revenue"`
 	AverageOrderValue float64 `json:"avg_order_value"`
 	PendingOrders     int     `json:"pending_orders"`
-	TakeoutOrders     int     `json:"takeout_orders"`
+	TakeoutOrders     int         `json:"takeout_orders"`
+	SalesHistory     interface{} `json:"sales_history"`
 }
 
 // DashboardStatsDTO represents the statistics returned for the admin dashboard

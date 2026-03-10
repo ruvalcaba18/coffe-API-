@@ -6,7 +6,9 @@ import (
 	usermodel "coffeebase-api/internal/models/user"
 	userstore "coffeebase-api/internal/store/user"
 	"encoding/json"
+	"log"
 	webServer "net/http"
+	stringManipulation "strings"
 )
 
 type AuthHandler struct {
@@ -59,10 +61,18 @@ func (authHandler *AuthHandler) Login(responseWriter webServer.ResponseWriter, h
 		return
 	}
 
+	loginRequest.Email = stringManipulation.ToLower(stringManipulation.TrimSpace(loginRequest.Email))
 	userInstance, fetchError := authHandler.UserStore.GetByEmail(loginRequest.Email)
 	passwordMatch := auth.CheckPasswordHash(loginRequest.Password, userInstance.Password)
 
-	if fetchError != nil || !passwordMatch {
+	if fetchError != nil {
+		log.Printf("Login failed: User not found with email %s", loginRequest.Email)
+		webServer.Error(responseWriter, "Invalid credentials", webServer.StatusUnauthorized)
+		return
+	}
+
+	if !passwordMatch {
+		log.Printf("Login failed: Password mismatch for email %s", loginRequest.Email)
 		webServer.Error(responseWriter, "Invalid credentials", webServer.StatusUnauthorized)
 		return
 	}

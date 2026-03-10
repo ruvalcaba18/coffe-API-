@@ -26,15 +26,37 @@ func (s *Store) Create(u *usermodel.User) error {
 
 func (s *Store) GetByEmail(email string) (usermodel.User, error) {
 	var u usermodel.User
-	query := `SELECT id, username, email, password, language, avatar_url, role, total_orders_completed, total_spent, created_at FROM users WHERE email = $1`
-	err := s.db.QueryRow(query, email).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, &u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt)
+	query := `
+		SELECT 
+			id, username, email, password, 
+			COALESCE(language, 'es'), 
+			COALESCE(avatar_url, ''), 
+			role, 
+			total_orders_completed, total_spent, created_at 
+		FROM users 
+		WHERE LOWER(email) = LOWER($1)`
+	err := s.db.QueryRow(query, email).Scan(
+		&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, 
+		&u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt,
+	)
 	return u, err
 }
 
 func (s *Store) GetByID(id int) (usermodel.User, error) {
 	var u usermodel.User
-	query := `SELECT id, username, email, password, language, avatar_url, role, total_orders_completed, total_spent, created_at FROM users WHERE id = $1`
-	err := s.db.QueryRow(query, id).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, &u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt)
+	query := `
+		SELECT 
+			id, username, email, password, 
+			COALESCE(language, 'es'), 
+			COALESCE(avatar_url, ''), 
+			role, 
+			total_orders_completed, total_spent, created_at 
+		FROM users 
+		WHERE id = $1`
+	err := s.db.QueryRow(query, id).Scan(
+		&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, 
+		&u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt,
+	)
 	return u, err
 }
 

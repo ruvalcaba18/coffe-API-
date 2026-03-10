@@ -21,22 +21,25 @@ func RunMigrations(db *sql.DB) error {
 		return fmt.Errorf("could not create migrations table: %v", err)
 	}
 
-	// 2. Read migration files
-	files, err := os.ReadDir("internal/database/migrations")
+	// 2. Read migration files recursively
+	var migrationFiles []string
+	err = filepath.Walk("internal/database/migrations", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && filepath.Ext(path) == ".sql" {
+			migrationFiles = append(migrationFiles, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("could not read migrations directory: %v", err)
-	}
-
-	var migrationFiles []string
-	for _, f := range files {
-		if !f.IsDir() && filepath.Ext(f.Name()) == ".sql" {
-			migrationFiles = append(migrationFiles, f.Name())
-		}
 	}
 	sort.Strings(migrationFiles)
 
 	// 3. Apply each migration
-	for _, filename := range migrationFiles {
+	for _, fullPath := range migrationFiles {
+		filename := filepath.Base(fullPath)
 		var exists bool
 		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)", filename).Scan(&exists)
 		if err != nil {
@@ -48,7 +51,7 @@ func RunMigrations(db *sql.DB) error {
 		}
 
 		log.Printf("Applying migration: %s", filename)
-		content, err := os.ReadFile(filepath.Join("internal/database/migrations", filename))
+		content, err := os.ReadFile(fullPath)
 		if err != nil {
 			return err
 		}

@@ -13,12 +13,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var cryptographySecretKey = []byte(os.Getenv("JWT_SECRET"))
-
-func init() {
-	if len(cryptographySecretKey) == 0 {
-		cryptographySecretKey = []byte("my-secret-key-12345")
+func getSecretKey() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return []byte("my-secret-key-12345")
 	}
+	return []byte(secret)
 }
 
 type Claims struct {
@@ -49,13 +49,13 @@ func GenerateToken(userID int, role string, clientIP string, userAgent string) (
 	}
 
 	signedToken := jwt.NewWithClaims(jwt.SigningMethodHS256, tokenClaims)
-	return signedToken.SignedString(cryptographySecretKey)
+	return signedToken.SignedString(getSecretKey())
 }
 
 func ValidateToken(tokenString string) (*Claims, error) {
 	tokenClaims := &Claims{}
 	parsedToken, parsingError := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (interface{}, error) {
-		return cryptographySecretKey, nil
+		return getSecretKey(), nil
 	})
 
 	if parsingError != nil {
@@ -70,7 +70,16 @@ func ValidateToken(tokenString string) (*Claims, error) {
 }
 
 func GenerateClientFingerprint(ipAddress string, userAgent string) string {
-	combinedAttributes := fmt.Sprintf("%s|%s", ipAddress, userAgent)
+
+	normalizedIP := ipAddress
+	for i := len(ipAddress) - 1; i >= 0; i-- {
+		if ipAddress[i] == ':' {
+			normalizedIP = ipAddress[:i]
+			break
+		}
+	}
+
+	combinedAttributes := fmt.Sprintf("%s|%s", normalizedIP, userAgent)
 	attributeHash := sha256.Sum256([]byte(combinedAttributes))
 	return hex.EncodeToString(attributeHash[:])
 }

@@ -32,6 +32,7 @@ func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseW
 			AverageOrderValue: orderStatistics.AverageOrderValue,
 			PendingOrders:     orderStatistics.PendingOrders,
 			TakeoutOrders:     orderStatistics.TakeoutOrders,
+			SalesHistory:      orderStatistics.SalesHistory,
 		},
 		Users: map[string]interface{}{
 			"total_count": totalUserCount,

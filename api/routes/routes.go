@@ -9,8 +9,13 @@ import (
 	"path/filepath"
 	stringManipulation "strings"
 
+	"coffeebase-api/internal/middleware/ratelimit"
+	"time"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/redis/go-redis/v9"
 )
 
 func NewRouter(
@@ -27,8 +32,29 @@ func NewRouter(
 	notificationHandler *handlers.NotificationHandler,
 	adminCouponHandler *adminhandlers.CouponHandler,
 	adminDashboardHandler *adminhandlers.DashboardHandler,
+	redisClient *redis.Client,
 ) *chi.Mux {
 	router := chi.NewRouter()
+
+	// Configuración de CORS basada en variables de entorno
+	allowedOriginsStr := os.Getenv("ALLOWED_ORIGINS")
+	allowedOrigins := []string{"http://localhost:3000", "http://localhost:5173"} // Valores por defecto seguros
+	if allowedOriginsStr != "" {
+		allowedOrigins = stringManipulation.Split(allowedOriginsStr, ",")
+	}
+
+	router.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   allowedOrigins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	if redisClient != nil {
+		router.Use(ratelimit.RateLimitMiddleware(redisClient, 60, time.Minute))
+	}
 
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)

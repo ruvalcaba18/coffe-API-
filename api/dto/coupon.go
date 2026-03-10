@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// CouponRequest defines the payload for creating or updating a coupon
 type CouponRequest struct {
 	Code              string    `json:"code"`
 	DiscountType      string    `json:"discount_type"`
@@ -18,7 +17,6 @@ type CouponRequest struct {
 	IsActive          bool      `json:"is_active"`
 }
 
-// CouponResponse represents the coupon data returned to the client
 type CouponResponse struct {
 	ID                int       `json:"id"`
 	Code              string    `json:"code"`
@@ -34,7 +32,6 @@ type CouponResponse struct {
 	CreatedAt         time.Time `json:"created_at"`
 }
 
-// MapCouponToResponse converts an internal Coupon model into an API DTO
 func MapCouponToResponse(c couponmodel.Coupon) CouponResponse {
 	return CouponResponse{
 		ID:                c.ID,
@@ -52,7 +49,6 @@ func MapCouponToResponse(c couponmodel.Coupon) CouponResponse {
 	}
 }
 
-// MapCouponsToResponse converts a slice of internal Coupon models into API DTOs
 func MapCouponsToResponse(coupons []couponmodel.Coupon) []CouponResponse {
 	dtos := make([]CouponResponse, len(coupons))
 	for i, c := range coupons {

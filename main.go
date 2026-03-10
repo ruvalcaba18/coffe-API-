@@ -5,7 +5,6 @@ import (
 	adminhandlers "coffeebase-api/api/handlers/admin"
 	"coffeebase-api/api/routes"
 	"coffeebase-api/internal/database"
-	"coffeebase-api/internal/middleware/ratelimit"
 	"coffeebase-api/internal/notifications"
 	orderservice "coffeebase-api/internal/service/order"
 	cartstore "coffeebase-api/internal/store/cart"
@@ -20,13 +19,18 @@ import (
 	systemLog "log"
 	webServer "net/http"
 	"os"
-	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
+	// Load environment variables from .env file and override system variables
+	if err := godotenv.Overload(); err != nil {
+		systemLog.Println("Info: No .env file found, using system environment variables")
+	}
+
 	databaseConnection := initializeDatabaseAndRunMigrations()
 	defer databaseConnection.Close()
 
@@ -37,7 +41,7 @@ func main() {
 
 	router := buildApplicationRouter(databaseConnection, redisClient)
 
-	startApiServer(router, redisClient)
+	startApiServer(router)
 }
 
 func initializeDatabaseAndRunMigrations() *sql.DB {
@@ -112,14 +116,11 @@ func buildApplicationRouter(databaseConnection *sql.DB, redisClient *redis.Clien
 		notificationHandler,
 		adminCouponHandler,
 		adminDashboardHandler,
+		redisClient,
 	)
 }
 
-func startApiServer(applicationRouter *chi.Mux, redisClient *redis.Client) {
-	if redisClient != nil {
-		applicationRouter.Use(ratelimit.RateLimitMiddleware(redisClient, 60, time.Minute))
-	}
-
+func startApiServer(applicationRouter *chi.Mux) {
 	serverPort := os.Getenv("PORT")
 	if serverPort == "" {
 		serverPort = "8080"

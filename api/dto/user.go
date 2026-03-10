@@ -49,7 +49,7 @@ type UpdateLanguageRequest struct {
 
 // MapUsersToResponse converts a slice of User models into a slice of DTOs
 func MapUsersToResponse(users []usermodel.User) []UserResponse {
-	var dtos []UserResponse
+	dtos := make([]UserResponse, 0)
 	for _, u := range users {
 		dtos = append(dtos, MapUserToResponse(u))
 	}
