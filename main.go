@@ -87,7 +87,7 @@ func buildApplicationRouter(databaseConnection *sql.DB, redisClient *redis.Clien
 	notificationHub := notifications.NewHub()
 
 	// Initialize Handlers
-	authHandler := &handlers.AuthHandler{UserStore: userStoreInstance}
+	authHandler := &handlers.AuthHandler{UserStore: userStoreInstance, NotificationHub: notificationHub}
 	productHandler := &handlers.ProductHandler{ProductStore: productStoreInstance}
 	orderHandler := &handlers.OrderHandler{OrderStore: orderStoreInstance, ProductStore: productStoreInstance, OrderService: orderBusinessService}
 	reviewHandler := &handlers.ReviewHandler{ReviewStore: reviewStoreInstance}

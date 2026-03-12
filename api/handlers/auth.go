@@ -4,6 +4,7 @@ import (
 	"coffeebase-api/api/dto"
 	"coffeebase-api/internal/auth"
 	usermodel "coffeebase-api/internal/models/user"
+	"coffeebase-api/internal/notifications"
 	userstore "coffeebase-api/internal/store/user"
 	"encoding/json"
 	"log"
@@ -12,7 +13,8 @@ import (
 )
 
 type AuthHandler struct {
-	UserStore *userstore.Store
+	UserStore       *userstore.Store
+	NotificationHub *notifications.Hub
 }
 
 func (authHandler *AuthHandler) Register(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
@@ -50,7 +52,16 @@ func (authHandler *AuthHandler) Register(responseWriter webServer.ResponseWriter
 
 	responseWriter.Header().Set("Content-Type", "application/json")
 	responseWriter.WriteHeader(webServer.StatusCreated)
-	json.NewEncoder(responseWriter).Encode(dto.MapUserToResponse(userInstance))
+	userResponse := dto.MapUserToResponse(userInstance)
+	
+	if authHandler.NotificationHub != nil {
+		authHandler.NotificationHub.Broadcast(map[string]interface{}{
+			"type": "new_user",
+			"user": userResponse,
+		})
+	}
+
+	json.NewEncoder(responseWriter).Encode(userResponse)
 }
 
 func (authHandler *AuthHandler) Login(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {

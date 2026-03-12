@@ -74,4 +74,16 @@ func (h *Hub) SendToUser(userID int, message interface{}) {
 		}
 	}
 }
+func (h *Hub) Broadcast(message interface{}) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, conns := range h.connections {
+		for client := range conns {
+			select {
+			case client.Send <- message:
+			default:
+			}
+		}
+	}
+}
 
