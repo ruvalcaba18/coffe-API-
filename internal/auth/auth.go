@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -70,14 +72,17 @@ func ValidateToken(tokenString string) (*Claims, error) {
 }
 
 func GenerateClientFingerprint(ipAddress string, userAgent string) string {
-
 	normalizedIP := ipAddress
-	for i := len(ipAddress) - 1; i >= 0; i-- {
-		if ipAddress[i] == ':' {
-			normalizedIP = ipAddress[:i]
-			break
-		}
+	
+	// Try to split host and port
+	host, _, err := net.SplitHostPort(ipAddress)
+	if err == nil {
+		normalizedIP = host
 	}
+
+	// Clean up IPv6 brackets if still present
+	normalizedIP = strings.TrimPrefix(normalizedIP, "[")
+	normalizedIP = strings.TrimSuffix(normalizedIP, "]")
 
 	combinedAttributes := fmt.Sprintf("%s|%s", normalizedIP, userAgent)
 	attributeHash := sha256.Sum256([]byte(combinedAttributes))

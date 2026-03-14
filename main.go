@@ -95,6 +95,7 @@ func buildApplicationRouter(databaseConnection *sql.DB, redisClient *redis.Clien
 	userHandler := &handlers.UserHandler{UserStore: userStoreInstance}
 	cartHandler := &handlers.CartHandler{CartStore: cartStoreInstance}
 	notificationHandler := &handlers.NotificationHandler{NotificationHub: notificationHub}
+	billingHandler := &handlers.BillingHandler{}
 
 	adminProductHandler := &adminhandlers.ProductHandler{ProductStore: productStoreInstance}
 	adminOrderHandler := &adminhandlers.OrderHandler{OrderStore: orderStoreInstance, NotificationHub: notificationHub}
@@ -116,6 +117,7 @@ func buildApplicationRouter(databaseConnection *sql.DB, redisClient *redis.Clien
 		notificationHandler,
 		adminCouponHandler,
 		adminDashboardHandler,
+		billingHandler,
 		redisClient,
 	)
 }

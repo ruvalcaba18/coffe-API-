@@ -9,6 +9,9 @@ type UserResponse struct {
 	ID                   int       `json:"id"`
 	Username             string    `json:"username"`
 	Email                string    `json:"email"`
+	FirstName            string    `json:"first_name"`
+	LastName             string    `json:"last_name"`
+	Birthday             time.Time `json:"birthday"`
 	Language             string    `json:"language"`
 	AvatarURL            string    `json:"avatar_url"`
 	Role                 string    `json:"role"`
@@ -22,6 +25,9 @@ func MapUserToResponse(u usermodel.User) UserResponse {
 		ID:                   u.ID,
 		Username:             u.Username,
 		Email:                u.Email,
+		FirstName:            u.FirstName,
+		LastName:             u.LastName,
+		Birthday:             u.Birthday,
 		Language:             u.Language,
 		AvatarURL:            u.AvatarURL,
 		Role:                 u.Role,
@@ -45,6 +51,13 @@ type LoginRequest struct {
 
 type UpdateLanguageRequest struct {
 	Language string `json:"language"`
+}
+
+type UpdateProfileRequest struct {
+	FirstName string `json:"firstName,omitempty"`
+	LastName  string `json:"lastName,omitempty"`
+	Birthday  string `json:"birthday,omitempty"`
+	Language  string `json:"language,omitempty"`
 }
 
 // MapUsersToResponse converts a slice of User models into a slice of DTOs

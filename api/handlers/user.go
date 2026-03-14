@@ -14,12 +14,48 @@ import (
 	"time"
 )
 
-/**
- * UserHandler manages user-specific operations like profile updates and avatar uploads.
- * Refactored to eliminate all shorthands and follow strictly declarative naming.
- */
 type UserHandler struct {
 	UserStore *userStorePackage.Store
+}
+
+func (userHandler *UserHandler) UpdateProfile(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
+
+	var updateRequest dto.UpdateProfileRequest
+	if err := json.NewDecoder(httpRequest.Body).Decode(&updateRequest); err != nil {
+		webServer.Error(responseWriter, "Invalid request body", webServer.StatusBadRequest)
+		return
+	}
+
+	user, err := userHandler.UserStore.GetByID(currentUserID)
+	if err != nil {
+		webServer.Error(responseWriter, "User not found", webServer.StatusNotFound)
+		return
+	}
+
+	if updateRequest.FirstName != "" {
+		user.FirstName = updateRequest.FirstName
+	}
+	if updateRequest.LastName != "" {
+		user.LastName = updateRequest.LastName
+	}
+	if updateRequest.Language != "" {
+		user.Language = updateRequest.Language
+	}
+	if updateRequest.Birthday != "" {
+		birthday, err := time.Parse("2006-01-02", updateRequest.Birthday)
+		if err == nil {
+			user.Birthday = birthday
+		}
+	}
+
+	if err := userHandler.UserStore.Update(&user); err != nil {
+		webServer.Error(responseWriter, "Failed to update profile", webServer.StatusInternalServerError)
+		return
+	}
+
+	responseWriter.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(responseWriter).Encode(dto.MapUserToResponse(user))
 }
 
 func (userHandler *UserHandler) UpdateLanguage(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
@@ -32,7 +68,6 @@ func (userHandler *UserHandler) UpdateLanguage(responseWriter webServer.Response
 		return
 	}
 
-	// Validate language
 	validLanguages := map[string]bool{
 		"es":  true,
 		"en":  true,
@@ -59,7 +94,6 @@ func (userHandler *UserHandler) UpdateLanguage(responseWriter webServer.Response
 func (userHandler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
 	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
-	// Limit upload size (2MB - considered normal for profile pictures)
 	const maximumAllowedFileSize = 2 << 20
 	httpRequest.ParseMultipartForm(maximumAllowedFileSize)
 
@@ -70,20 +104,13 @@ func (userHandler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWr
 	}
 	defer uploadedFile.Close()
 
-	// Explicit size check
 	if fileHeader.Size > maximumAllowedFileSize {
 		webServer.Error(responseWriter, "File is too large. Maximum size allowed is 2MB.", webServer.StatusRequestEntityTooLarge)
 		return
 	}
-
-	// Create uploads directory if not exists
 	uploadDirectoryPath := "./uploads/avatars"
 	os.MkdirAll(uploadDirectoryPath, os.ModePerm)
-
-	// Generate unique filename
 	fileExtension := filepath.Ext(fileHeader.Filename)
-
-	// 1. Validate extension
 	allowedExtensions := map[string]bool{
 		".jpg":  true,
 		".jpeg": true,
@@ -96,7 +123,6 @@ func (userHandler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWr
 		return
 	}
 
-	// 2. Validate MIME type for security
 	typeDetectionBuffer := make([]byte, 512)
 	if _, readingError := uploadedFile.Read(typeDetectionBuffer); readingError != nil {
 		webServer.Error(responseWriter, "Error reading file", webServer.StatusInternalServerError)
@@ -107,13 +133,11 @@ func (userHandler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWr
 		webServer.Error(responseWriter, "File is not a valid image", webServer.StatusBadRequest)
 		return
 	}
-	// Reset file pointer after reading buffer
 	uploadedFile.Seek(0, io.SeekStart)
 
 	uniqueFilename := outputFormatting.Sprintf("%d_%d%s", currentUserID, time.Now().Unix(), fileExtension)
 	targetFilePath := filepath.Join(uploadDirectoryPath, uniqueFilename)
 
-	// Save file to disk
 	destinationFile, creationError := os.Create(targetFilePath)
 	if creationError != nil {
 		webServer.Error(responseWriter, "Error saving the file", webServer.StatusInternalServerError)

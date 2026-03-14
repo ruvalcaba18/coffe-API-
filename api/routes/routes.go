@@ -32,11 +32,11 @@ func NewRouter(
 	notificationHandler *handlers.NotificationHandler,
 	adminCouponHandler *adminhandlers.CouponHandler,
 	adminDashboardHandler *adminhandlers.DashboardHandler,
+	billingHandler *handlers.BillingHandler,
 	redisClient *redis.Client,
 ) *chi.Mux {
 	router := chi.NewRouter()
 
-	// Configuración de CORS basada en variables de entorno
 	allowedOriginsStr := os.Getenv("ALLOWED_ORIGINS")
 	allowedOrigins := []string{"http://localhost:3000", "http://localhost:5173"} // Valores por defecto seguros
 	if allowedOriginsStr != "" {
@@ -58,8 +58,6 @@ func NewRouter(
 
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
-
-	// Serve static files for uploads
 	workDirectory, workingDirectoryError := os.Getwd()
 	if workingDirectoryError == nil {
 		filesDirectory := webServer.Dir(filepath.Join(workDirectory, "uploads"))
@@ -67,28 +65,28 @@ func NewRouter(
 	}
 
 	router.Route("/api/v1", func(apiV1Router chi.Router) {
-		// Public/Session routes
 		apiV1Router.Post("/users", authHandler.Register)
 		apiV1Router.Post("/tokens", authHandler.Login)
-
-		// WebSocket Notification Route
+		registerProductRoutes(apiV1Router, productHandler)
 		apiV1Router.Group(func(wsRouter chi.Router) {
 			wsRouter.Use(custom_middleware.AuthMiddleware)
 			wsRouter.Get("/notifications/ws", notificationHandler.HandleWS)
 		})
 
-		// Protected routes
 		apiV1Router.Group(func(protectedRouter chi.Router) {
 			protectedRouter.Use(custom_middleware.AuthMiddleware)
 
 			registerUserRoutes(protectedRouter, userHandler)
-			registerProductRoutes(protectedRouter, productHandler)
 			registerOrderRoutes(protectedRouter, orderHandler)
 			registerCartRoutes(protectedRouter, cartHandler)
 			registerReviewRoutes(protectedRouter, reviewHandler)
 			registerFavoriteRoutes(protectedRouter, favoriteHandler)
 
-			// Admin Section
+			protectedRouter.Route("/billing", func(billingRouter chi.Router) {
+				billingRouter.Get("/wallet", billingHandler.GetWallet)
+				billingRouter.Get("/payment-methods", billingHandler.GetPaymentMethods)
+			})
+
 			protectedRouter.Group(func(adminRouter chi.Router) {
 				adminRouter.Use(custom_middleware.AdminMiddleware)
 				registerAdminRoutes(adminRouter, adminProductHandler, adminOrderHandler, adminUserHandler, adminCouponHandler, adminDashboardHandler)
@@ -101,7 +99,7 @@ func NewRouter(
 
 func registerUserRoutes(router chi.Router, handler *handlers.UserHandler) {
 	router.Get("/profile", handler.GetProfile)
-	router.Patch("/profile", handler.UpdateLanguage)
+	router.Patch("/profile", handler.UpdateProfile)
 	router.Post("/profile/avatar", handler.UploadAvatar)
 }
 
@@ -142,27 +140,22 @@ func registerAdminRoutes(
 	couponH *adminhandlers.CouponHandler,
 	dashboardH *adminhandlers.DashboardHandler,
 ) {
-	// Admin Products management
 	router.Post("/admin/products", productH.Create)
 	router.Post("/admin/products/bulk", productH.CreateBulk)
 	router.Put("/admin/products/{id}", productH.Update)
 	router.Delete("/admin/products/{id}", productH.Delete)
 
-	// Admin Orders management
 	router.Get("/admin/orders", orderH.GetAll)
 	router.Patch("/admin/orders/{id}", orderH.UpdateStatus)
 
-	// Admin User management
 	router.Get("/admin/users", userH.GetAll)
 	router.Patch("/admin/users/role/{id}", userH.UpdateRole)
 
-	// Admin Coupons management
 	router.Post("/admin/coupons", couponH.Create)
 	router.Get("/admin/coupons", couponH.GetAll)
 	router.Patch("/admin/coupons/status/{id}", couponH.ToggleStatus)
 	router.Delete("/admin/coupons/{id}", couponH.Delete)
 
-	// Admin Dashboard
 	router.Get("/admin/dashboard/stats", dashboardH.GetStats)
 }
 
@@ -178,7 +171,6 @@ func FileServer(router chi.Router, path string, root webServer.FileSystem) {
 	path += "*"
 
 	router.Get(path, func(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
-		// Extra security layer: Block directory traversal attempts explicitly
 		if stringManipulation.Contains(httpRequest.URL.Path, "..") {
 			webServer.Error(responseWriter, "Invalid path", webServer.StatusBadRequest)
 			return

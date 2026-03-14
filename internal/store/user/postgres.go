@@ -15,7 +15,7 @@ func NewStore(db *sql.DB) *Store {
 
 func (s *Store) Create(u *usermodel.User) error {
 	if u.Language == "" {
-		u.Language = "es" // Default
+		u.Language = "es" 
 	}
 	if u.Role == "" {
 		u.Role = "customer"
@@ -26,37 +26,53 @@ func (s *Store) Create(u *usermodel.User) error {
 
 func (s *Store) GetByEmail(email string) (usermodel.User, error) {
 	var u usermodel.User
+	var birthday sql.NullTime
 	query := `
 		SELECT 
 			id, username, email, password, 
 			COALESCE(language, 'es'), 
 			COALESCE(avatar_url, ''), 
 			role, 
-			total_orders_completed, total_spent, created_at 
+			total_orders_completed, total_spent, created_at,
+			COALESCE(first_name, ''),
+			COALESCE(last_name, ''),
+			birthday
 		FROM users 
 		WHERE LOWER(email) = LOWER($1)`
 	err := s.db.QueryRow(query, email).Scan(
 		&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, 
 		&u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt,
+		&u.FirstName, &u.LastName, &birthday,
 	)
+	if birthday.Valid {
+		u.Birthday = birthday.Time
+	}
 	return u, err
 }
 
 func (s *Store) GetByID(id int) (usermodel.User, error) {
 	var u usermodel.User
+	var birthday sql.NullTime
 	query := `
 		SELECT 
 			id, username, email, password, 
 			COALESCE(language, 'es'), 
 			COALESCE(avatar_url, ''), 
 			role, 
-			total_orders_completed, total_spent, created_at 
+			total_orders_completed, total_spent, created_at,
+			COALESCE(first_name, ''),
+			COALESCE(last_name, ''),
+			birthday
 		FROM users 
 		WHERE id = $1`
 	err := s.db.QueryRow(query, id).Scan(
 		&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, 
 		&u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt,
+		&u.FirstName, &u.LastName, &birthday,
 	)
+	if birthday.Valid {
+		u.Birthday = birthday.Time
+	}
 	return u, err
 }
 
@@ -79,7 +95,12 @@ func (s *Store) GetTotalCount() (int, error) {
 }
 
 func (s *Store) GetAll() ([]usermodel.User, error) {
-	rows, err := s.db.Query(`SELECT id, username, email, language, avatar_url, role, total_orders_completed, total_spent, created_at FROM users ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`
+		SELECT 
+			id, username, email, language, avatar_url, role, 
+			total_orders_completed, total_spent, created_at,
+			COALESCE(first_name, ''), COALESCE(last_name, ''), birthday 
+		FROM users ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +109,16 @@ func (s *Store) GetAll() ([]usermodel.User, error) {
 	var users []usermodel.User
 	for rows.Next() {
 		var u usermodel.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Language, &u.AvatarURL, &u.Role, &u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt); err != nil {
+		var birthday sql.NullTime
+		if err := rows.Scan(
+			&u.ID, &u.Username, &u.Email, &u.Language, &u.AvatarURL, &u.Role, 
+			&u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt,
+			&u.FirstName, &u.LastName, &birthday,
+		); err != nil {
 			return nil, err
+		}
+		if birthday.Valid {
+			u.Birthday = birthday.Time
 		}
 		users = append(users, u)
 	}
@@ -99,6 +128,12 @@ func (s *Store) GetAll() ([]usermodel.User, error) {
 func (s *Store) UpdateRole(id int, role string) error {
 	query := `UPDATE users SET role = $1 WHERE id = $2`
 	_, err := s.db.Exec(query, role, id)
+	return err
+}
+
+func (s *Store) Update(u *usermodel.User) error {
+	query := `UPDATE users SET first_name = $1, last_name = $2, birthday = $3, language = $4, username = $5 WHERE id = $6`
+	_, err := s.db.Exec(query, u.FirstName, u.LastName, u.Birthday, u.Language, u.Username, u.ID)
 	return err
 }
 
