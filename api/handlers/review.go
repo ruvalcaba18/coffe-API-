@@ -2,57 +2,64 @@ package handlers
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/middleware"
 	reviewmodel "coffeebase-api/internal/models/review"
-	reviewstore "coffeebase-api/internal/store/review"
-	"encoding/json"
+	"coffeebase-api/internal/store/review"
 	"net/http"
 	"strconv"
 )
 
 type ReviewHandler struct {
-	ReviewStore *reviewstore.Store
+	reviewStore review.Store
 }
 
-func (reviewHandler *ReviewHandler) Create(responseWriter http.ResponseWriter, request *http.Request) {
-	userID := request.Context().Value(middleware.UserIDKey).(int)
+// --- Public ---
 
-	var reviewInput dto.ReviewRequest
-	if decodeError := json.NewDecoder(request.Body).Decode(&reviewInput); decodeError != nil {
-		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
+func NewReviewHandler(reviewStore review.Store) *ReviewHandler {
+	return &ReviewHandler{
+		reviewStore: reviewStore,
+	}
+}
+
+func (reviewHandler *ReviewHandler) Create(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	userID := httpRequest.Context().Value(middleware.UserIDKey).(int)
+
+	var request dto.ReviewRequest
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
-	productReview := &reviewmodel.Review{
-		ProductID: reviewInput.ProductID,
+	reviewInstance := &reviewmodel.Review{
+		ProductID: request.ProductID,
 		UserID:    userID,
-		Rating:    reviewInput.Rating,
-		Comment:   reviewInput.Comment,
+		Rating:    request.Rating,
+		Comment:   request.Comment,
 	}
 
-	if creationError := reviewHandler.ReviewStore.Create(productReview); creationError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+	if error := reviewHandler.reviewStore.Create(httpRequest.Context(), reviewInstance); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	responseWriter.WriteHeader(http.StatusCreated)
-	json.NewEncoder(responseWriter).Encode(dto.MapReviewToResponse(*productReview))
+	response.SendJSON(responseWriter, http.StatusCreated, dto.MapReviewToResponse(*reviewInstance))
 }
 
-func (reviewHandler *ReviewHandler) GetByProduct(responseWriter http.ResponseWriter, request *http.Request) {
-	productIdentifier, _ := strconv.Atoi(request.URL.Query().Get("product_id"))
-	if productIdentifier == 0 {
-		http.Error(responseWriter, "product_id query param is required", http.StatusBadRequest)
+func (reviewHandler *ReviewHandler) GetByProduct(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	productIDString := httpRequest.URL.Query().Get("product_id")
+	productID, conversionError := strconv.Atoi(productIDString)
+	if conversionError != nil || productID == 0 {
+		response.SendError(responseWriter, apperrors.ErrInvalidID)
 		return
 	}
 
-	reviewList, fetchError := reviewHandler.ReviewStore.GetByProductID(productIdentifier)
-	if fetchError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+	reviewList, error := reviewHandler.reviewStore.GetByProductID(httpRequest.Context(), productID)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dto.MapReviewsToResponse(reviewList))
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapReviewsToResponse(reviewList))
 }

@@ -4,9 +4,11 @@ import (
 	"coffeebase-api/api/handlers"
 	adminhandlers "coffeebase-api/api/handlers/admin"
 	"coffeebase-api/api/routes"
+	"coffeebase-api/internal/cache"
 	"coffeebase-api/internal/database"
 	"coffeebase-api/internal/notifications"
 	orderservice "coffeebase-api/internal/service/order"
+	billingstore "coffeebase-api/internal/store/billing"
 	cartstore "coffeebase-api/internal/store/cart"
 	couponstore "coffeebase-api/internal/store/coupon"
 	favoritestore "coffeebase-api/internal/store/favorite"
@@ -15,9 +17,9 @@ import (
 	reviewstore "coffeebase-api/internal/store/review"
 	userstore "coffeebase-api/internal/store/user"
 	"database/sql"
-	output "fmt"
-	systemLog "log"
-	webServer "net/http"
+	"fmt"
+	"log"
+	"net/http"
 	"os"
 
 	"github.com/go-chi/chi/v5"
@@ -25,39 +27,44 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// --- Public ---
+
 func main() {
-	// Load environment variables from .env file and override system variables
-	if err := godotenv.Overload(); err != nil {
-		systemLog.Println("Info: No .env file found, using system environment variables")
+	if error := godotenv.Overload(); error != nil {
+		log.Println("Info: No .env file found, using system environment variables")
 	}
 
 	databaseConnection := initializeDatabaseAndRunMigrations()
 	defer databaseConnection.Close()
 
 	redisClient := initializeRedisConnection()
+	var cacheService cache.Service
 	if redisClient != nil {
 		defer redisClient.Close()
+		cacheService = cache.NewRedisCache(redisClient)
 	}
 
-	router := buildApplicationRouter(databaseConnection, redisClient)
+	applicationRouter := buildApplicationRouter(databaseConnection, cacheService)
 
-	startApiServer(router)
+	startApiServer(applicationRouter)
 }
+
+// --- Private ---
 
 func initializeDatabaseAndRunMigrations() *sql.DB {
 	databaseConnection, databaseConnectionError := database.NewConnection()
 	if databaseConnectionError != nil {
-		systemLog.Fatalf("Could not connect to database: %v", databaseConnectionError)
+		log.Fatalf("Could not connect to database: %v", databaseConnectionError)
 	}
 
 	migrationError := database.RunMigrations(databaseConnection)
 	if migrationError != nil {
-		systemLog.Fatalf("Failed to run migrations: %v", migrationError)
+		log.Fatalf("Failed to run migrations: %v", migrationError)
 	}
 
 	seedingError := database.SeedDatabase(databaseConnection)
 	if seedingError != nil {
-		systemLog.Fatalf("Failed to seed database: %v", seedingError)
+		log.Fatalf("Failed to seed database: %v", seedingError)
 	}
 
 	return databaseConnection
@@ -66,42 +73,40 @@ func initializeDatabaseAndRunMigrations() *sql.DB {
 func initializeRedisConnection() *redis.Client {
 	redisClient, redisConnectionError := database.NewRedisClient()
 	if redisConnectionError != nil {
-		systemLog.Printf("Warning: Could not connect to redis: %v. Caching will be disabled.", redisConnectionError)
+		log.Printf("Warning: Could not connect to redis: %v. Caching will be disabled.", redisConnectionError)
 		return nil
 	}
 	return redisClient
 }
 
-func buildApplicationRouter(databaseConnection *sql.DB, redisClient *redis.Client) *chi.Mux {
-	// Initialize Stores
+func buildApplicationRouter(databaseConnection *sql.DB, cacheService cache.Service) *chi.Mux {
 	userStoreInstance := userstore.NewStore(databaseConnection)
-	productStoreInstance := productstore.NewStore(databaseConnection, redisClient)
+	productStoreInstance := productstore.NewStore(databaseConnection, cacheService)
 	orderStoreInstance := orderstore.NewStore(databaseConnection)
 	reviewStoreInstance := reviewstore.NewStore(databaseConnection)
 	favoriteStoreInstance := favoritestore.NewStore(databaseConnection)
-	cartStoreInstance := cartstore.NewStore(databaseConnection, redisClient)
+	cartStoreInstance := cartstore.NewStore(databaseConnection, cacheService)
 	couponStoreInstance := couponstore.NewStore(databaseConnection)
+	billingStoreInstance := billingstore.NewStore(databaseConnection)
 
-	// Initialize Business Services
-	orderBusinessService := orderservice.NewService(databaseConnection, redisClient, orderStoreInstance, cartStoreInstance, productStoreInstance, couponStoreInstance)
+	orderBusinessService := orderservice.NewService(databaseConnection, cacheService, orderStoreInstance, cartStoreInstance, productStoreInstance, couponStoreInstance)
 	notificationHub := notifications.NewHub()
 
-	// Initialize Handlers
-	authHandler := &handlers.AuthHandler{UserStore: userStoreInstance, NotificationHub: notificationHub}
-	productHandler := &handlers.ProductHandler{ProductStore: productStoreInstance}
-	orderHandler := &handlers.OrderHandler{OrderStore: orderStoreInstance, ProductStore: productStoreInstance, OrderService: orderBusinessService}
-	reviewHandler := &handlers.ReviewHandler{ReviewStore: reviewStoreInstance}
-	favoriteHandler := &handlers.FavoriteHandler{FavoriteStore: favoriteStoreInstance}
-	userHandler := &handlers.UserHandler{UserStore: userStoreInstance}
-	cartHandler := &handlers.CartHandler{CartStore: cartStoreInstance}
-	notificationHandler := &handlers.NotificationHandler{NotificationHub: notificationHub}
-	billingHandler := &handlers.BillingHandler{}
+	authHandler := handlers.NewAuthHandler(userStoreInstance, notificationHub)
+	productHandler := handlers.NewProductHandler(productStoreInstance)
+	orderHandler := handlers.NewOrderHandler(orderStoreInstance, productStoreInstance, orderBusinessService)
+	reviewHandler := handlers.NewReviewHandler(reviewStoreInstance)
+	favoriteHandler := handlers.NewFavoriteHandler(favoriteStoreInstance)
+	userHandler := handlers.NewUserHandler(userStoreInstance)
+	cartHandler := handlers.NewCartHandler(cartStoreInstance)
+	notificationHandler := handlers.NewNotificationHandler(notificationHub)
+	billingHandler := handlers.NewBillingHandler(billingStoreInstance)
 
-	adminProductHandler := &adminhandlers.ProductHandler{ProductStore: productStoreInstance}
-	adminOrderHandler := &adminhandlers.OrderHandler{OrderStore: orderStoreInstance, NotificationHub: notificationHub}
-	adminUserHandler := &adminhandlers.UserHandler{UserStore: userStoreInstance}
-	adminCouponHandler := &adminhandlers.CouponHandler{CouponStore: couponStoreInstance}
-	adminDashboardHandler := &adminhandlers.DashboardHandler{OrderStore: orderStoreInstance, UserStore: userStoreInstance}
+	adminProductHandler := adminhandlers.NewProductHandler(productStoreInstance)
+	adminOrderHandler := adminhandlers.NewOrderHandler(orderStoreInstance, notificationHub)
+	adminUserHandler := adminhandlers.NewUserHandler(userStoreInstance)
+	adminCouponHandler := adminhandlers.NewCouponHandler(couponStoreInstance)
+	adminDashboardHandler := adminhandlers.NewDashboardHandler(orderStoreInstance, userStoreInstance)
 
 	return routes.NewRouter(
 		authHandler,
@@ -118,7 +123,7 @@ func buildApplicationRouter(databaseConnection *sql.DB, redisClient *redis.Clien
 		adminCouponHandler,
 		adminDashboardHandler,
 		billingHandler,
-		redisClient,
+		cacheService,
 	)
 }
 
@@ -128,9 +133,9 @@ func startApiServer(applicationRouter *chi.Mux) {
 		serverPort = "8080"
 	}
 
-	output.Printf("Coffee Shop API starting on port %s...\n", serverPort)
-	serverRunError := webServer.ListenAndServe(":"+serverPort, applicationRouter)
+	fmt.Printf("Coffee Shop API starting on port %s...\n", serverPort)
+	serverRunError := http.ListenAndServe(":"+serverPort, applicationRouter)
 	if serverRunError != nil {
-		systemLog.Fatalf("Failed to start server: %v", serverRunError)
+		log.Fatalf("Failed to start server: %v", serverRunError)
 	}
 }

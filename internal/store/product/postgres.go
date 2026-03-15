@@ -3,222 +3,169 @@ package product
 import (
 	productmodel "coffeebase-api/internal/models/product"
 	"context"
-	"database/sql"
 	"encoding/json"
-	outputFormatting "fmt"
+	"fmt"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
-/**
- * Store handles all persistence operations for the product module.
- * Refactored to eliminate all shorthands and follow strictly declarative naming.
- */
-type Store struct {
-	databaseConnection *sql.DB
-	redisClient        *redis.Client
-}
+// --- Public ---
 
-func NewStore(databaseConnection *sql.DB, redisClient *redis.Client) *Store {
-	return &Store{
-		databaseConnection: databaseConnection,
-		redisClient:        redisClient,
-	}
-}
+func (store *postgresStore) GetAll(requestContext context.Context, filter productmodel.Filter) ([]productmodel.Product, error) {
+	key := fmt.Sprintf("products:q=%s:c=%s:min=%.2f:max=%.2f", filter.Query, filter.Category, filter.MinPrice, filter.MaxPrice)
 
-func (productStore *Store) GetAll(filter productmodel.Filter) ([]productmodel.Product, error) {
-	requestContext := context.Background()
-	
-	// Generate dynamic cache key based on filters
-	cacheUniqueIdentifier := outputFormatting.Sprintf("products:q=%s:c=%s:min=%.2f:max=%.2f", filter.Query, filter.Category, filter.MinPrice, filter.MaxPrice)
-
-	// Try cache first
-	if cachedValue, cacheError := productStore.redisClient.Get(requestContext, cacheUniqueIdentifier).Result(); cacheError == nil {
-		var cachedProducts []productmodel.Product
-		if unmarshalError := json.Unmarshal([]byte(cachedValue), &cachedProducts); unmarshalError == nil {
-			return cachedProducts, nil
+	if cached, error := store.cacheService.Get(requestContext, key); error == nil {
+		var products []productmodel.Product
+		if error := json.Unmarshal([]byte(cached), &products); error == nil {
+			return products, nil
 		}
 	}
 
-	// Dynamic Query Construction
-	baseQuery := `
+	query := `
 		SELECT p.id, p.name, p.description, p.price, p.category, 
 		       p.average_rating, p.review_count
 		FROM products p
 		WHERE 1=1`
-	var queryArguments []interface{}
-	argumentCounter := 1
+	var args []interface{}
+	counter := 1
 
 	if filter.Query != "" {
-		baseQuery += outputFormatting.Sprintf(" AND (name ILIKE $%d OR description ILIKE $%d)", argumentCounter, argumentCounter+1)
-		queryArguments = append(queryArguments, "%"+filter.Query+"%", "%"+filter.Query+"%")
-		argumentCounter += 2
+		query += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.description ILIKE $%d)", counter, counter+1)
+		args = append(args, "%"+filter.Query+"%", "%"+filter.Query+"%")
+		counter += 2
 	}
 	if filter.Category != "" {
-		baseQuery += outputFormatting.Sprintf(" AND category = $%d", argumentCounter)
-		queryArguments = append(queryArguments, filter.Category)
-		argumentCounter++
+		query += fmt.Sprintf(" AND p.category = $%d", counter)
+		args = append(args, filter.Category)
+		counter++
 	}
 	if filter.MinPrice > 0 {
-		baseQuery += outputFormatting.Sprintf(" AND price >= $%d", argumentCounter)
-		queryArguments = append(queryArguments, filter.MinPrice)
-		argumentCounter++
+		query += fmt.Sprintf(" AND p.price >= $%d", counter)
+		args = append(args, filter.MinPrice)
+		counter++
 	}
 	if filter.MaxPrice > 0 {
-		baseQuery += outputFormatting.Sprintf(" AND p.price <= $%d", argumentCounter)
-		queryArguments = append(queryArguments, filter.MaxPrice)
-		argumentCounter++
+		query += fmt.Sprintf(" AND p.price <= $%d", counter)
+		args = append(args, filter.MaxPrice)
+		counter++
 	}
 
-	// No longer need GROUP BY because we aren't using aggregate functions
-
-	rows, queryError := productStore.databaseConnection.Query(baseQuery, queryArguments...)
-	if queryError != nil {
-		return nil, queryError
+	rows, error := store.databaseConnection.QueryContext(requestContext, query, args...)
+	if error != nil {
+		return nil, error
 	}
 	defer rows.Close()
 
-	var productList []productmodel.Product
+	var products []productmodel.Product
 	for rows.Next() {
 		var productInstance productmodel.Product
-		if scanError := rows.Scan(
-			&productInstance.ID, 
-			&productInstance.Name, 
-			&productInstance.Description, 
-			&productInstance.Price, 
-			&productInstance.Category,
-			&productInstance.AverageRating,
-			&productInstance.ReviewCount,
-		); scanError != nil {
-			return nil, scanError
+		if error := rows.Scan(&productInstance.ID, &productInstance.Name, &productInstance.Description, &productInstance.Price, &productInstance.Category, &productInstance.AverageRating, &productInstance.ReviewCount); error != nil {
+			return nil, error
 		}
-		productList = append(productList, productInstance)
+		products = append(products, productInstance)
 	}
 
-	// Save to cache for 5 minutes
-	if serializedData, serializationError := json.Marshal(productList); serializationError == nil {
-		productStore.redisClient.Set(requestContext, cacheUniqueIdentifier, serializedData, 5*time.Minute)
+	if data, error := json.Marshal(products); error == nil {
+		store.cacheService.Set(requestContext, key, data, 5*time.Minute)
 	}
 
-	return productList, nil
+	return products, nil
 }
 
-func (productStore *Store) GetByID(productID int) (productmodel.Product, error) {
-	requestContext := context.Background()
-	cacheUniqueIdentifier := outputFormatting.Sprintf("product:%d", productID)
+func (store *postgresStore) GetByID(requestContext context.Context, id int) (productmodel.Product, error) {
+	key := fmt.Sprintf("product:%d", id)
 
-	// Try cache
-	if cachedValue, cacheError := productStore.redisClient.Get(requestContext, cacheUniqueIdentifier).Result(); cacheError == nil {
-		var cachedProduct productmodel.Product
-		if unmarshalError := json.Unmarshal([]byte(cachedValue), &cachedProduct); unmarshalError == nil {
-			return cachedProduct, nil
+	if cached, error := store.cacheService.Get(requestContext, key); error == nil {
+		var productInstance productmodel.Product
+		if error := json.Unmarshal([]byte(cached), &productInstance); error == nil {
+			return productInstance, nil
 		}
 	}
 
 	var productInstance productmodel.Product
-	query := `
-		SELECT id, name, description, price, category, average_rating, review_count
-		FROM products
-		WHERE id = $1`
+	query := `SELECT id, name, description, price, category, average_rating, review_count FROM products WHERE id = $1`
+	error := store.databaseConnection.QueryRowContext(requestContext, query, id).Scan(&productInstance.ID, &productInstance.Name, &productInstance.Description, &productInstance.Price, &productInstance.Category, &productInstance.AverageRating, &productInstance.ReviewCount)
 	
-	fetchError := productStore.databaseConnection.QueryRow(query, productID).
-		Scan(
-			&productInstance.ID, 
-			&productInstance.Name, 
-			&productInstance.Description, 
-			&productInstance.Price, 
-			&productInstance.Category,
-			&productInstance.AverageRating,
-			&productInstance.ReviewCount,
-		)
-	
-	if fetchError == nil {
-		if serializedData, serializationError := json.Marshal(productInstance); serializationError == nil {
-			productStore.redisClient.Set(requestContext, cacheUniqueIdentifier, serializedData, 10*time.Minute)
+	if error == nil {
+		if data, error := json.Marshal(productInstance); error == nil {
+			store.cacheService.Set(requestContext, key, data, 10*time.Minute)
 		}
 	}
 
-	return productInstance, fetchError
+	return productInstance, error
 }
 
-func (productStore *Store) Create(productInstance *productmodel.Product) error {
-	queryStatement := `INSERT INTO products (name, description, price, category) VALUES ($1, $2, $3, $4) RETURNING id`
-	executionError := productStore.databaseConnection.QueryRow(queryStatement, productInstance.Name, productInstance.Description, productInstance.Price, productInstance.Category).Scan(&productInstance.ID)
-	if executionError == nil {
-		productStore.redisClient.Del(context.Background(), "all_products")
+func (store *postgresStore) Create(requestContext context.Context, productInstance *productmodel.Product) error {
+	query := `INSERT INTO products (name, description, price, category) VALUES ($1, $2, $3, $4) RETURNING id`
+	error := store.databaseConnection.QueryRowContext(requestContext, query, productInstance.Name, productInstance.Description, productInstance.Price, productInstance.Category).Scan(&productInstance.ID)
+	if error == nil {
+		store.cacheService.Del(requestContext, "all_products")
 	}
-	return executionError
+	return error
 }
 
-func (productStore *Store) Update(productInstance *productmodel.Product) error {
-	queryStatement := `UPDATE products SET name = $1, description = $2, price = $3, category = $4 WHERE id = $5`
-	_, executionError := productStore.databaseConnection.Exec(queryStatement, productInstance.Name, productInstance.Description, productInstance.Price, productInstance.Category, productInstance.ID)
-	if executionError == nil {
-		requestContext := context.Background()
-		productStore.redisClient.Del(requestContext, "all_products")
-		productStore.redisClient.Del(requestContext, outputFormatting.Sprintf("product:%d", productInstance.ID))
+func (store *postgresStore) Update(requestContext context.Context, productInstance *productmodel.Product) error {
+	query := `UPDATE products SET name = $1, description = $2, price = $3, category = $4 WHERE id = $5`
+	_, error := store.databaseConnection.ExecContext(requestContext, query, productInstance.Name, productInstance.Description, productInstance.Price, productInstance.Category, productInstance.ID)
+	if error == nil {
+		store.cacheService.Del(requestContext, "all_products")
+		store.cacheService.Del(requestContext, fmt.Sprintf("product:%d", productInstance.ID))
 	}
-	return executionError
+	return error
 }
 
-func (productStore *Store) Delete(productID int) error {
-	_, executionError := productStore.databaseConnection.Exec("DELETE FROM products WHERE id = $1", productID)
-	if executionError == nil {
-		requestContext := context.Background()
-		productStore.redisClient.Del(requestContext, "all_products")
-		productStore.redisClient.Del(requestContext, outputFormatting.Sprintf("product:%d", productID))
+func (store *postgresStore) Delete(requestContext context.Context, id int) error {
+	query := "DELETE FROM products WHERE id = $1"
+	_, error := store.databaseConnection.ExecContext(requestContext, query, id)
+	if error == nil {
+		store.cacheService.Del(requestContext, "all_products")
+		store.cacheService.Del(requestContext, fmt.Sprintf("product:%d", id))
 	}
-	return executionError
+	return error
 }
 
-func (productStore *Store) CreateBulk(productCollection []productmodel.Product) error {
-	databaseTransaction, transactionError := productStore.databaseConnection.Begin()
-	if transactionError != nil {
-		return transactionError
+func (store *postgresStore) CreateBulk(requestContext context.Context, products []productmodel.Product) error {
+	transaction, error := store.databaseConnection.BeginTx(requestContext, nil)
+	if error != nil {
+		return error
 	}
-	defer databaseTransaction.Rollback()
+	defer transaction.Rollback()
 
-	insertionQuery := `INSERT INTO products (name, description, price, category) VALUES ($1, $2, $3, $4)`
-	preparedContextStatement, preparationError := databaseTransaction.Prepare(insertionQuery)
-	if preparationError != nil {
-		return preparationError
+	stmt, error := transaction.PrepareContext(requestContext, `INSERT INTO products (name, description, price, category) VALUES ($1, $2, $3, $4)`)
+	if error != nil {
+		return error
 	}
-	defer preparedContextStatement.Close()
+	defer stmt.Close()
 
-	for _, item := range productCollection {
-		if _, executionError := preparedContextStatement.Exec(item.Name, item.Description, item.Price, item.Category); executionError != nil {
-			return executionError
+	for _, productInstance := range products {
+		if _, error := stmt.ExecContext(requestContext, productInstance.Name, productInstance.Description, productInstance.Price, productInstance.Category); error != nil {
+			return error
 		}
 	}
 
-	if commitError := databaseTransaction.Commit(); commitError != nil {
-		return commitError
+	if error := transaction.Commit(); error != nil {
+		return error
 	}
 
-	// Invalidate cache
-	productStore.redisClient.FlushDB(context.Background())
+	store.cacheService.FlushDB(requestContext)
 	return nil
 }
 
-func (productStore *Store) GetCategories() ([]string, error) {
-	queryStatement := `SELECT DISTINCT category FROM products WHERE category != '' ORDER BY category ASC`
-	rows, queryError := productStore.databaseConnection.Query(queryStatement)
-	if queryError != nil {
-		return nil, queryError
+func (store *postgresStore) GetCategories(requestContext context.Context) ([]string, error) {
+	query := `SELECT DISTINCT category FROM products WHERE category != '' ORDER BY category ASC`
+	rows, error := store.databaseConnection.QueryContext(requestContext, query)
+	if error != nil {
+		return nil, error
 	}
 	defer rows.Close()
 
-	var categoryList []string
+	var categories []string
 	for rows.Next() {
-		var categoryName string
-		if scanError := rows.Scan(&categoryName); scanError != nil {
-			return nil, scanError
+		var name string
+		if error := rows.Scan(&name); error != nil {
+			return nil, error
 		}
-		categoryList = append(categoryList, categoryName)
+		categories = append(categories, name)
 	}
 
-	return categoryList, nil
+	return categories, nil
 }
-
-

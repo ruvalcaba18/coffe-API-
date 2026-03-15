@@ -1,0 +1,11 @@
+-- Payment methods table
+CREATE TABLE IF NOT EXISTS payment_methods (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    last4 VARCHAR(4) NOT NULL,
+    expiry VARCHAR(7) NOT NULL, -- Format MM/YYYY or MM/YY
+    brand VARCHAR(20) NOT NULL,
+    holder VARCHAR(100) NOT NULL,
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

@@ -1,6 +1,7 @@
 package cart
 
 import (
+	"coffeebase-api/internal/cache"
 	"context"
 	"regexp"
 	"testing"
@@ -12,90 +13,86 @@ import (
 )
 
 func TestStore_GetCart(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to open sqlmock: %s", err)
+	databaseMock, sqlMock, error := sqlmock.New()
+	if error != nil {
+		t.Fatalf("failed to open sqlmock: %s", error)
 	}
-	defer db.Close()
+	defer databaseMock.Close()
 
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("failed to run miniredis: %s", err)
+	miniRedis, error := miniredis.Run()
+	if error != nil {
+		t.Fatalf("failed to run miniredis: %s", error)
 	}
-	defer mr.Close()
+	defer miniRedis.Close()
 
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
+		Addr: miniRedis.Addr(),
 	})
 
-	s := NewStore(db, redisClient)
+	cartStore := NewStore(databaseMock, cache.NewRedisCache(redisClient))
 
 	userID := 1
 	
-	// 1. Cache miss
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT product_id, quantity FROM cart_items WHERE user_id = $1")).
+	sqlMock.ExpectQuery(regexp.QuoteMeta("SELECT product_id, quantity FROM cart_items WHERE user_id = $1")).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"product_id", "quantity"}).
 			AddRow(101, 2).
 			AddRow(102, 1))
 
-	cart, err := s.GetCart(userID)
-	assert.NoError(t, err)
-	assert.Len(t, cart.Items, 2)
-	assert.Equal(t, 101, cart.Items[0].ProductID)
-	assert.Equal(t, 2, cart.Items[0].Quantity)
+	cartInstance, error := cartStore.GetCart(context.Background(), userID)
+	assert.NoError(t, error)
+	assert.Len(t, cartInstance.Items, 2)
+	assert.Equal(t, 101, cartInstance.Items[0].ProductID)
+	assert.Equal(t, 2, cartInstance.Items[0].Quantity)
 
-	// Verify cached in Redis
-	assert.True(t, mr.Exists("cart:1"))
+	assert.True(t, miniRedis.Exists("cart:1"))
 
-	// 2. Cache hit
-	cart2, err := s.GetCart(userID)
-	assert.NoError(t, err)
-	assert.Len(t, cart2.Items, 2)
+	cartInstance2, error := cartStore.GetCart(context.Background(), userID)
+	assert.NoError(t, error)
+	assert.Len(t, cartInstance2.Items, 2)
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("there were unfulfilled expectations: %s", err)
+	if error := sqlMock.ExpectationsWereMet(); error != nil {
+		t.Errorf("there were unfulfilled expectations: %s", error)
 	}
 }
 
 func TestStore_ClearCart(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to open sqlmock: %s", err)
+	databaseMock, sqlMock, error := sqlmock.New()
+	if error != nil {
+		t.Fatalf("failed to open sqlmock: %s", error)
 	}
-	defer db.Close()
+	defer databaseMock.Close()
 
-	mr, err := miniredis.Run()
-	if err != nil {
-		t.Fatalf("failed to run miniredis: %s", err)
+	miniRedis, error := miniredis.Run()
+	if error != nil {
+		t.Fatalf("failed to run miniredis: %s", error)
 	}
-	defer mr.Close()
+	defer miniRedis.Close()
 
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
+		Addr: miniRedis.Addr(),
 	})
 
-	s := NewStore(db, redisClient)
+	cartStore := NewStore(databaseMock, cache.NewRedisCache(redisClient))
 
 	userID := 1
 
-	// Setup Redis key
 	redisClient.Set(context.Background(), "cart:1", "data", 0)
 
-	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM cart_items WHERE user_id = $1")).
+	sqlMock.ExpectBegin()
+	sqlMock.ExpectExec(regexp.QuoteMeta("DELETE FROM cart_items WHERE user_id = $1")).
 		WithArgs(userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
+	sqlMock.ExpectCommit()
 
-	tx, _ := db.Begin()
-	err = s.ClearCart(tx, userID)
-	tx.Commit()
+	transaction, _ := databaseMock.Begin()
+	error = cartStore.ClearCart(context.Background(), transaction, userID)
+	transaction.Commit()
 
-	assert.NoError(t, err)
-	assert.False(t, mr.Exists("cart:1"))
+	assert.NoError(t, error)
+	assert.False(t, miniRedis.Exists("cart:1"))
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("there were unfulfilled expectations: %s", err)
+	if error := sqlMock.ExpectationsWereMet(); error != nil {
+		t.Errorf("there were unfulfilled expectations: %s", error)
 	}
 }

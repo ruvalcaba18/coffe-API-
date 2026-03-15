@@ -20,20 +20,20 @@ type UserResponse struct {
 	CreatedAt            time.Time `json:"created_at"`
 }
 
-func MapUserToResponse(u usermodel.User) UserResponse {
+func MapUserToResponse(userModel usermodel.User) UserResponse {
 	return UserResponse{
-		ID:                   u.ID,
-		Username:             u.Username,
-		Email:                u.Email,
-		FirstName:            u.FirstName,
-		LastName:             u.LastName,
-		Birthday:             u.Birthday,
-		Language:             u.Language,
-		AvatarURL:            u.AvatarURL,
-		Role:                 u.Role,
-		TotalOrdersCompleted: u.TotalOrdersCompleted,
-		TotalSpent:           u.TotalSpent,
-		CreatedAt:            u.CreatedAt,
+		ID:                   userModel.ID,
+		Username:             userModel.Username,
+		Email:                userModel.Email,
+		FirstName:            userModel.FirstName,
+		LastName:             userModel.LastName,
+		Birthday:             userModel.Birthday,
+		Language:             userModel.Language,
+		AvatarURL:            userModel.AvatarURL,
+		Role:                 string(userModel.Role),
+		TotalOrdersCompleted: userModel.TotalOrdersCompleted,
+		TotalSpent:           userModel.TotalSpent,
+		CreatedAt:            userModel.CreatedAt,
 	}
 }
 
@@ -60,7 +60,6 @@ type UpdateProfileRequest struct {
 	Language  string `json:"language,omitempty"`
 }
 
-// MapUsersToResponse converts a slice of User models into a slice of DTOs
 func MapUsersToResponse(users []usermodel.User) []UserResponse {
 	dtos := make([]UserResponse, 0)
 	for _, u := range users {

@@ -2,49 +2,43 @@ package favorite
 
 import (
 	productmodel "coffeebase-api/internal/models/product"
-	"database/sql"
+	"context"
 )
 
-type Store struct {
-	db *sql.DB
-}
+// --- Public ---
 
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
-}
-
-func (s *Store) Add(userID, productID int) error {
+func (store *postgresStore) Add(requestContext context.Context, userID, productID int) error {
 	query := `INSERT INTO favorites (user_id, product_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-	_, err := s.db.Exec(query, userID, productID)
-	return err
+	_, error := store.databaseConnection.ExecContext(requestContext, query, userID, productID)
+	return error
 }
 
-func (s *Store) Remove(userID, productID int) error {
+func (store *postgresStore) Remove(requestContext context.Context, userID, productID int) error {
 	query := `DELETE FROM favorites WHERE user_id = $1 AND product_id = $2`
-	_, err := s.db.Exec(query, userID, productID)
-	return err
+	_, error := store.databaseConnection.ExecContext(requestContext, query, userID, productID)
+	return error
 }
 
-func (s *Store) GetUserFavorites(userID int) ([]productmodel.Product, error) {
+func (store *postgresStore) GetUserFavorites(requestContext context.Context, userID int) ([]productmodel.Product, error) {
 	query := `
 		SELECT p.id, p.name, p.description, p.price, p.category 
 		FROM products p
 		JOIN favorites f ON p.id = f.product_id
 		WHERE f.user_id = $1`
 	
-	rows, err := s.db.Query(query, userID)
-	if err != nil {
-		return nil, err
+	rows, error := store.databaseConnection.QueryContext(requestContext, query, userID)
+	if error != nil {
+		return nil, error
 	}
 	defer rows.Close()
 
 	var products []productmodel.Product
 	for rows.Next() {
-		var p productmodel.Product
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.Category); err != nil {
-			return nil, err
+		var productInstance productmodel.Product
+		if error := rows.Scan(&productInstance.ID, &productInstance.Name, &productInstance.Description, &productInstance.Price, &productInstance.Category); error != nil {
+			return nil, error
 		}
-		products = append(products, p)
+		products = append(products, productInstance)
 	}
 	return products, nil
 }

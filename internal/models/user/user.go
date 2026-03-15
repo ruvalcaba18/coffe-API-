@@ -2,6 +2,15 @@ package user
 
 import "time"
 
+type UserRole string
+
+const (
+	RoleSuperAdmin UserRole = "superadmin"
+	RoleAdmin      UserRole = "admin"
+	RoleBarista    UserRole = "barista"
+	RoleCustomer   UserRole = "customer"
+)
+
 type User struct {
 	ID        int       `json:"id"`
 	Username  string    `json:"username"`
@@ -12,7 +21,7 @@ type User struct {
 	LastName  string    `json:"last_name"`
 	Birthday  time.Time `json:"birthday"`
 	AvatarURL string    `json:"avatar_url"`
-	Role                 string    `json:"role"`
+	Role                 UserRole  `json:"role"`
 	TotalOrdersCompleted  int       `json:"total_orders_completed"`
 	TotalSpent           float64   `json:"total_spent"`
 	CreatedAt            time.Time `json:"created_at"`

@@ -2,26 +2,36 @@ package admin
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/store/order"
 	userstore "coffeebase-api/internal/store/user"
-	"encoding/json"
 	"net/http"
 )
 
 type DashboardHandler struct {
-	OrderStore *order.Store
-	UserStore  *userstore.Store
+	orderStore order.Store
+	userStore  userstore.Store
 }
 
-func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseWriter, request *http.Request) {
-	orderStatistics, orderStatsError := dashboardHandler.OrderStore.GetDashboardStats()
-	if orderStatsError != nil {
-		http.Error(responseWriter, "Failed to fetch order statistics", http.StatusInternalServerError)
+// --- Public ---
+
+func NewDashboardHandler(orderStore order.Store, userStore userstore.Store) *DashboardHandler {
+	return &DashboardHandler{
+		orderStore: orderStore,
+		userStore:  userStore,
+	}
+}
+
+func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	orderStatistics, error := dashboardHandler.orderStore.GetDashboardStats(httpRequest.Context())
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	totalUserCount, userCountError := dashboardHandler.UserStore.GetTotalCount()
-	if userCountError != nil {
+	totalUserCount, error := dashboardHandler.userStore.GetTotalCount(httpRequest.Context())
+	if error != nil {
 		totalUserCount = 0
 	}
 
@@ -32,13 +42,20 @@ func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseW
 			AverageOrderValue: orderStatistics.AverageOrderValue,
 			PendingOrders:     orderStatistics.PendingOrders,
 			TakeoutOrders:     orderStatistics.TakeoutOrders,
-			SalesHistory:      orderStatistics.SalesHistory,
+			SalesHistory:      []dto.DailySaleDTO{},
 		},
 		Users: map[string]interface{}{
 			"total_count": totalUserCount,
 		},
 	}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dashboardResponse)
+	for _, sale := range orderStatistics.SalesHistory {
+		dashboardResponse.Orders.SalesHistory = append(dashboardResponse.Orders.SalesHistory, dto.DailySaleDTO{
+			Date:        sale.Date,
+			Total:       sale.Total,
+			PickupCount: sale.PickupCount,
+		})
+	}
+
+	response.SendJSON(responseWriter, http.StatusOK, dashboardResponse)
 }

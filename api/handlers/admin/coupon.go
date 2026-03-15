@@ -2,9 +2,10 @@ package admin
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/models/coupon"
 	couponstore "coffeebase-api/internal/store/coupon"
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -12,71 +13,88 @@ import (
 )
 
 type CouponHandler struct {
-	CouponStore *couponstore.Store
+	couponStore couponstore.Store
 }
 
-func (couponHandler *CouponHandler) Create(responseWriter http.ResponseWriter, request *http.Request) {
-	var couponInput dto.CouponRequest
-	if decodeError := json.NewDecoder(request.Body).Decode(&couponInput); decodeError != nil {
-		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
+// --- Public ---
+
+func NewCouponHandler(couponStore couponstore.Store) *CouponHandler {
+	return &CouponHandler{
+		couponStore: couponStore,
+	}
+}
+
+func (couponHandler *CouponHandler) Create(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	var request dto.CouponRequest
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
 	couponInstance := &coupon.Coupon{
-		Code:              couponInput.Code,
-		DiscountType:      couponInput.DiscountType,
-		DiscountValue:     couponInput.DiscountValue,
-		MinPurchaseAmount: couponInput.MinPurchaseAmount,
-		MaxDiscountAmount: couponInput.MaxDiscountAmount,
-		StartDate:         couponInput.StartDate,
-		EndDate:           couponInput.EndDate,
-		UsageLimit:        couponInput.UsageLimit,
-		IsActive:          couponInput.IsActive,
+		Code:              request.Code,
+		DiscountType:      request.DiscountType,
+		DiscountValue:     request.DiscountValue,
+		MinPurchaseAmount: request.MinPurchaseAmount,
+		MaxDiscountAmount: request.MaxDiscountAmount,
+		StartDate:         request.StartDate,
+		EndDate:           request.EndDate,
+		UsageLimit:        request.UsageLimit,
+		IsActive:          request.IsActive,
 	}
 
-	if createError := couponHandler.CouponStore.Create(couponInstance); createError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+	if error := couponHandler.couponStore.Create(httpRequest.Context(), couponInstance); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	responseWriter.WriteHeader(http.StatusCreated)
-	json.NewEncoder(responseWriter).Encode(dto.MapCouponToResponse(*couponInstance))
+	response.SendJSON(responseWriter, http.StatusCreated, dto.MapCouponToResponse(*couponInstance))
 }
 
-func (couponHandler *CouponHandler) GetAll(responseWriter http.ResponseWriter, request *http.Request) {
-	couponList, fetchError := couponHandler.CouponStore.GetAll()
-	if fetchError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+func (couponHandler *CouponHandler) GetAll(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	couponList, error := couponHandler.couponStore.GetAll(httpRequest.Context())
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dto.MapCouponsToResponse(couponList))
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapCouponsToResponse(couponList))
 }
 
-func (couponHandler *CouponHandler) ToggleStatus(responseWriter http.ResponseWriter, request *http.Request) {
-	couponIdentifier, _ := strconv.Atoi(chi.URLParam(request, "id"))
-	var toggleRequest struct {
+func (couponHandler *CouponHandler) ToggleStatus(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	couponIDString := chi.URLParam(httpRequest, "id")
+	couponID, conversionError := strconv.Atoi(couponIDString)
+	if conversionError != nil {
+		response.SendError(responseWriter, apperrors.ErrInvalidID)
+		return
+	}
+
+	var request struct {
 		IsActive bool `json:"is_active"`
 	}
-	if decodeError := json.NewDecoder(request.Body).Decode(&toggleRequest); decodeError != nil {
-		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
-	if toggleError := couponHandler.CouponStore.ToggleStatus(couponIdentifier, toggleRequest.IsActive); toggleError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+	if error := couponHandler.couponStore.ToggleStatus(httpRequest.Context(), couponID, request.IsActive); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
 	responseWriter.WriteHeader(http.StatusNoContent)
 }
 
-func (couponHandler *CouponHandler) Delete(responseWriter http.ResponseWriter, request *http.Request) {
-	couponIdentifier, _ := strconv.Atoi(chi.URLParam(request, "id"))
-	if deletionError := couponHandler.CouponStore.Delete(couponIdentifier); deletionError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+func (couponHandler *CouponHandler) Delete(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	couponIDString := chi.URLParam(httpRequest, "id")
+	couponID, conversionError := strconv.Atoi(couponIDString)
+	if conversionError != nil {
+		response.SendError(responseWriter, apperrors.ErrInvalidID)
+		return
+	}
+
+	if error := couponHandler.couponStore.Delete(httpRequest.Context(), couponID); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 	responseWriter.WriteHeader(http.StatusNoContent)

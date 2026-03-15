@@ -3,39 +3,40 @@ package order
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
+	"coffeebase-api/internal/apperrors"
+	"coffeebase-api/internal/cache"
 	ordermodel "coffeebase-api/internal/models/order"
 	cartstore "coffeebase-api/internal/store/cart"
 	couponstore "coffeebase-api/internal/store/coupon"
 	orderstore "coffeebase-api/internal/store/order"
 	productstore "coffeebase-api/internal/store/product"
-
-	"github.com/redis/go-redis/v9"
 )
 
 type Service struct {
 	databaseConnection *sql.DB
-	redisClient        *redis.Client
-	orderStore         *orderstore.Store
-	cartStore          *cartstore.Store
-	productStore       *productstore.Store
-	couponStore        *couponstore.Store
+	cacheService       cache.Service
+	orderStore         orderstore.Store
+	cartStore          cartstore.Store
+	productStore       productstore.Store
+	couponStore        couponstore.Store
 }
+
+// --- Public ---
 
 func NewService(
 	databaseConnection *sql.DB,
-	redisClient *redis.Client,
-	orderStore *orderstore.Store,
-	cartStore *cartstore.Store,
-	productStore *productstore.Store,
-	couponStore *couponstore.Store,
+	cacheService cache.Service,
+	orderStore orderstore.Store,
+	cartStore cartstore.Store,
+	productStore productstore.Store,
+	couponStore couponstore.Store,
 ) *Service {
 	return &Service{
 		databaseConnection: databaseConnection,
-		redisClient:        redisClient,
+		cacheService:       cacheService,
 		orderStore:         orderStore,
 		cartStore:          cartStore,
 		productStore:       productStore,
@@ -43,7 +44,7 @@ func NewService(
 	}
 }
 
-func (orderService *Service) Checkout(
+func (service *Service) Checkout(
 	requestContext context.Context,
 	userID int,
 	couponCode string,
@@ -51,89 +52,126 @@ func (orderService *Service) Checkout(
 	pickupTime *time.Time,
 	pickupLocation string,
 ) (*ordermodel.Order, error) {
-	lockKey := fmt.Sprintf("lock:checkout:%d", userID)
-
-	// Idempotency: Use Redis lock to prevent double clicks/submissions (5 second window)
-	lockAcquired, lockError := orderService.redisClient.SetNX(requestContext, lockKey, "locked", 5*time.Second).Result()
-	if lockError != nil || !lockAcquired {
-		return nil, errors.New("request already in progress, please wait")
+	if error := service.acquireCheckoutLock(requestContext, userID); error != nil {
+		return nil, error
 	}
 
-	// ACID: Start DB Transaction
-	databaseTransaction, transactionBeginError := orderService.databaseConnection.BeginTx(requestContext, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	if transactionBeginError != nil {
-		return nil, transactionBeginError
+	databaseTransaction, error := service.databaseConnection.BeginTx(requestContext, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if error != nil {
+		return nil, error
 	}
 	defer databaseTransaction.Rollback()
 
-	// 1. Get Cart
-	userCart, cartFetchError := orderService.cartStore.GetCart(userID)
-	if cartFetchError != nil || len(userCart.Items) == 0 {
-		return nil, errors.New("cart is empty")
+	orderInstance, error := service.executeCheckoutLogic(requestContext, databaseTransaction, userID, couponCode, isPickup, pickupTime, pickupLocation)
+	if error != nil {
+		return nil, error
 	}
 
-	// 2. Validate products and calculate total
-	var orderItems []ordermodel.OrderItem
-	var totalAmount float64
-	for _, item := range userCart.Items {
-		productInstance, productFetchError := orderService.productStore.GetByID(item.ProductID)
-		if productFetchError != nil {
-			return nil, fmt.Errorf("product %d not found", item.ProductID)
-		}
-		orderItems = append(orderItems, ordermodel.OrderItem{
-			ProductID: item.ProductID,
-			Quantity:  item.Quantity,
-		})
-		totalAmount += productInstance.Price * float64(item.Quantity)
+	if error := databaseTransaction.Commit(); error != nil {
+		return nil, error
+	}
+
+	service.invalidateUserCaches(requestContext, userID)
+
+	return orderInstance, nil
+}
+
+// --- Private ---
+
+func (service *Service) acquireCheckoutLock(requestContext context.Context, userID int) error {
+	lockKey := fmt.Sprintf("lock:checkout:%d", userID)
+	lockAcquired, error := service.cacheService.SetNX(requestContext, lockKey, "locked", 5*time.Second)
+	if error != nil || !lockAcquired {
+		return apperrors.ErrRequestInProgress
+	}
+	return nil
+}
+
+func (service *Service) executeCheckoutLogic(
+	requestContext context.Context,
+	transaction *sql.Tx,
+	userID int,
+	couponCode string,
+	isPickup bool,
+	pickupTime *time.Time,
+	pickupLocation string,
+) (*ordermodel.Order, error) {
+	
+	items, total, error := service.prepareOrderItemsFromCart(requestContext, userID)
+	if error != nil {
+		return nil, error
 	}
 
 	orderInstance := &ordermodel.Order{
 		UserID:         userID,
-		Items:          orderItems,
-		Total:          totalAmount,
+		Items:          items,
+		Total:          total,
 		IsPickup:       isPickup,
 		PickupTime:     pickupTime,
 		PickupLocation: pickupLocation,
 	}
 
-	// 3. Handle Coupon
 	if couponCode != "" {
-		couponInstance, couponFetchError := orderService.couponStore.GetByCode(couponCode)
-		if couponFetchError != nil {
-			return nil, errors.New("invalid coupon code")
-		}
-		if !couponInstance.IsValid(totalAmount) {
-			return nil, errors.New("coupon is not valid for this purchase")
-		}
-
-		discountAmount := couponInstance.CalculateDiscount(totalAmount)
-		orderInstance.Total = totalAmount - discountAmount
-		orderInstance.CouponCode = couponCode
-		orderInstance.DiscountAmount = discountAmount
-
-		// Increment usage in DB within transaction
-		if incrementError := orderService.couponStore.IncrementUsage(databaseTransaction, couponCode); incrementError != nil {
-			return nil, incrementError
+		if error := service.applyCouponToOrder(requestContext, transaction, orderInstance, couponCode); error != nil {
+			return nil, error
 		}
 	}
 
-	// 4. Create Order using the transaction
-	if createError := orderService.orderStore.CreateWithTx(databaseTransaction, orderInstance); createError != nil {
-		return nil, createError
+	if error := service.orderStore.CreateWithTx(requestContext, transaction, orderInstance); error != nil {
+		return nil, error
 	}
 
-	// 4. Clear Cart using the transaction
-	if clearError := orderService.cartStore.ClearCart(databaseTransaction, userID); clearError != nil {
-		return nil, clearError
+	if error := service.cartStore.ClearCart(requestContext, transaction, userID); error != nil {
+		return nil, error
 	}
-
-	// 5. Commit Transaction
-	if commitError := databaseTransaction.Commit(); commitError != nil {
-		return nil, commitError
-	}
-
-	// 6. Invalidate Cart Cache in Redis
-	orderService.redisClient.Del(requestContext, fmt.Sprintf("cart:%d", userID))
 
 	return orderInstance, nil
+}
+
+func (service *Service) prepareOrderItemsFromCart(requestContext context.Context, userID int) ([]ordermodel.OrderItem, float64, error) {
+	userCart, error := service.cartStore.GetCart(requestContext, userID)
+	if error != nil || len(userCart.Items) == 0 {
+		return nil, 0, apperrors.ErrCartEmpty
+	}
+
+	var orderItems []ordermodel.OrderItem
+	var totalAmount float64
+
+	for _, cartItem := range userCart.Items {
+		productInstance, error := service.productStore.GetByID(requestContext, cartItem.ProductID)
+		if error != nil {
+			return nil, 0, fmt.Errorf("%w: %d", apperrors.ErrProductNotFound, cartItem.ProductID)
+		}
+		
+		orderItems = append(orderItems, ordermodel.OrderItem{
+			ProductID: cartItem.ProductID,
+			Quantity:  cartItem.Quantity,
+		})
+		totalAmount += productInstance.Price * float64(cartItem.Quantity)
+	}
+
+	return orderItems, totalAmount, nil
+}
+
+func (service *Service) applyCouponToOrder(requestContext context.Context, transaction *sql.Tx, order *ordermodel.Order, code string) error {
+	couponInstance, error := service.couponStore.GetByCode(requestContext, code)
+	if error != nil {
+		return apperrors.ErrInvalidCoupon
+	}
+
+	if !couponInstance.IsValid(order.Total) {
+		return apperrors.ErrCouponNotValidForPurchase
+	}
+
+	discountAmount := couponInstance.CalculateDiscount(order.Total)
+	order.Total -= discountAmount
+	order.CouponCode = code
+	order.DiscountAmount = discountAmount
+
+	return service.couponStore.IncrementUsage(requestContext, transaction, code)
+}
+
+func (service *Service) invalidateUserCaches(requestContext context.Context, userID int) {
+	cacheKey := fmt.Sprintf("cart:%d", userID)
+	service.cacheService.Del(requestContext, cacheKey)
 }

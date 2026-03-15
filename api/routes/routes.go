@@ -4,19 +4,21 @@ import (
 	"coffeebase-api/api/handlers"
 	adminhandlers "coffeebase-api/api/handlers/admin"
 	custom_middleware "coffeebase-api/internal/middleware"
-	webServer "net/http"
+	"net/http"
 	"os"
 	"path/filepath"
-	stringManipulation "strings"
+	"strings"
 
+	"coffeebase-api/internal/cache"
 	"coffeebase-api/internal/middleware/ratelimit"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/redis/go-redis/v9"
 )
+
+// --- Public ---
 
 func NewRouter(
 	authHandler *handlers.AuthHandler,
@@ -33,17 +35,17 @@ func NewRouter(
 	adminCouponHandler *adminhandlers.CouponHandler,
 	adminDashboardHandler *adminhandlers.DashboardHandler,
 	billingHandler *handlers.BillingHandler,
-	redisClient *redis.Client,
+	cacheService cache.Service,
 ) *chi.Mux {
-	router := chi.NewRouter()
+	applicationRouter := chi.NewRouter()
 
-	allowedOriginsStr := os.Getenv("ALLOWED_ORIGINS")
-	allowedOrigins := []string{"http://localhost:3000", "http://localhost:5173"} // Valores por defecto seguros
-	if allowedOriginsStr != "" {
-		allowedOrigins = stringManipulation.Split(allowedOriginsStr, ",")
+	allowedOriginsString := os.Getenv("ALLOWED_ORIGINS")
+	allowedOrigins := []string{"http://localhost:3000", "http://localhost:5173"} 
+	if allowedOriginsString != "" {
+		allowedOrigins = strings.Split(allowedOriginsString, ",")
 	}
 
-	router.Use(cors.Handler(cors.Options{
+	applicationRouter.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
@@ -52,19 +54,20 @@ func NewRouter(
 		MaxAge:           300,
 	}))
 
-	if redisClient != nil {
-		router.Use(ratelimit.RateLimitMiddleware(redisClient, 60, time.Minute))
+	if cacheService != nil {
+		applicationRouter.Use(ratelimit.RateLimitMiddleware(cacheService, 60, time.Minute))
 	}
 
-	router.Use(middleware.Logger)
-	router.Use(middleware.Recoverer)
-	workDirectory, workingDirectoryError := os.Getwd()
+	applicationRouter.Use(middleware.Logger)
+	applicationRouter.Use(middleware.Recoverer)
+
+	workingDirectory, workingDirectoryError := os.Getwd()
 	if workingDirectoryError == nil {
-		filesDirectory := webServer.Dir(filepath.Join(workDirectory, "uploads"))
-		FileServer(router, "/uploads", filesDirectory)
+		filesDirectory := http.Dir(filepath.Join(workingDirectory, "uploads"))
+		setupFileServer(applicationRouter, "/uploads", filesDirectory)
 	}
 
-	router.Route("/api/v1", func(apiV1Router chi.Router) {
+	applicationRouter.Route("/api/v1", func(apiV1Router chi.Router) {
 		apiV1Router.Post("/users", authHandler.Register)
 		apiV1Router.Post("/tokens", authHandler.Login)
 		registerProductRoutes(apiV1Router, productHandler)
@@ -85,6 +88,7 @@ func NewRouter(
 			protectedRouter.Route("/billing", func(billingRouter chi.Router) {
 				billingRouter.Get("/wallet", billingHandler.GetWallet)
 				billingRouter.Get("/payment-methods", billingHandler.GetPaymentMethods)
+				billingRouter.Post("/payment-methods", billingHandler.AddPaymentMethod)
 			})
 
 			protectedRouter.Group(func(adminRouter chi.Router) {
@@ -94,91 +98,93 @@ func NewRouter(
 		})
 	})
 
-	return router
+	return applicationRouter
 }
 
-func registerUserRoutes(router chi.Router, handler *handlers.UserHandler) {
-	router.Get("/profile", handler.GetProfile)
-	router.Patch("/profile", handler.UpdateProfile)
-	router.Post("/profile/avatar", handler.UploadAvatar)
+// --- Private ---
+
+func registerUserRoutes(router chi.Router, userHandler *handlers.UserHandler) {
+	router.Get("/profile", userHandler.GetProfile)
+	router.Patch("/profile", userHandler.UpdateProfile)
+	router.Post("/profile/avatar", userHandler.UploadAvatar)
 }
 
-func registerProductRoutes(router chi.Router, handler *handlers.ProductHandler) {
-	router.Get("/products", handler.GetAll)
-	router.Get("/products/categories", handler.GetCategories)
-	router.Get("/products/{id}", handler.GetByID)
+func registerProductRoutes(router chi.Router, productHandler *handlers.ProductHandler) {
+	router.Get("/products", productHandler.GetAll)
+	router.Get("/products/categories", productHandler.GetCategories)
+	router.Get("/products/{id}", productHandler.GetByID)
 }
 
-func registerOrderRoutes(router chi.Router, handler *handlers.OrderHandler) {
-	router.Post("/orders", handler.Checkout)
-	router.Get("/orders", handler.GetHistory)
-	router.Get("/orders/latest", handler.GetLatest)
-	router.Get("/orders/pickups", handler.GetPickups)
+func registerOrderRoutes(router chi.Router, orderHandler *handlers.OrderHandler) {
+	router.Post("/orders", orderHandler.Checkout)
+	router.Get("/orders", orderHandler.GetHistory)
+	router.Get("/orders/latest", orderHandler.GetLatest)
+	router.Get("/orders/pickups", orderHandler.GetPickups)
 }
 
-func registerCartRoutes(router chi.Router, handler *handlers.CartHandler) {
-	router.Get("/cart", handler.GetCart)
-	router.Patch("/cart", handler.UpdateItem)
+func registerCartRoutes(router chi.Router, cartHandler *handlers.CartHandler) {
+	router.Get("/cart", cartHandler.GetCart)
+	router.Patch("/cart", cartHandler.UpdateItem)
 }
 
-func registerReviewRoutes(router chi.Router, handler *handlers.ReviewHandler) {
-	router.Post("/reviews", handler.Create)
-	router.Get("/reviews", handler.GetByProduct)
+func registerReviewRoutes(router chi.Router, reviewHandler *handlers.ReviewHandler) {
+	router.Post("/reviews", reviewHandler.Create)
+	router.Get("/reviews", reviewHandler.GetByProduct)
 }
 
-func registerFavoriteRoutes(router chi.Router, handler *handlers.FavoriteHandler) {
-	router.Get("/favorites", handler.GetUserFavorites)
-	router.Post("/favorites", handler.Add)
-	router.Delete("/favorites/{id}", handler.Remove)
+func registerFavoriteRoutes(router chi.Router, favoriteHandler *handlers.FavoriteHandler) {
+	router.Get("/favorites", favoriteHandler.GetUserFavorites)
+	router.Post("/favorites", favoriteHandler.Add)
+	router.Delete("/favorites/{id}", favoriteHandler.Remove)
 }
 
 func registerAdminRoutes(
 	router chi.Router,
-	productH *adminhandlers.ProductHandler,
-	orderH *adminhandlers.OrderHandler,
-	userH *adminhandlers.UserHandler,
-	couponH *adminhandlers.CouponHandler,
-	dashboardH *adminhandlers.DashboardHandler,
+	productHandler *adminhandlers.ProductHandler,
+	orderHandler *adminhandlers.OrderHandler,
+	userHandler *adminhandlers.UserHandler,
+	couponHandler *adminhandlers.CouponHandler,
+	dashboardHandler *adminhandlers.DashboardHandler,
 ) {
-	router.Post("/admin/products", productH.Create)
-	router.Post("/admin/products/bulk", productH.CreateBulk)
-	router.Put("/admin/products/{id}", productH.Update)
-	router.Delete("/admin/products/{id}", productH.Delete)
+	router.Post("/admin/products", productHandler.Create)
+	router.Post("/admin/products/bulk", productHandler.CreateBulk)
+	router.Put("/admin/products/{id}", productHandler.Update)
+	router.Delete("/admin/products/{id}", productHandler.Delete)
 
-	router.Get("/admin/orders", orderH.GetAll)
-	router.Patch("/admin/orders/{id}", orderH.UpdateStatus)
+	router.Get("/admin/orders", orderHandler.GetAll)
+	router.Patch("/admin/orders/{id}", orderHandler.UpdateStatus)
 
-	router.Get("/admin/users", userH.GetAll)
-	router.Patch("/admin/users/role/{id}", userH.UpdateRole)
+	router.Get("/admin/users", userHandler.GetAll)
+	router.Patch("/admin/users/role/{id}", userHandler.UpdateRole)
 
-	router.Post("/admin/coupons", couponH.Create)
-	router.Get("/admin/coupons", couponH.GetAll)
-	router.Patch("/admin/coupons/status/{id}", couponH.ToggleStatus)
-	router.Delete("/admin/coupons/{id}", couponH.Delete)
+	router.Post("/admin/coupons", couponHandler.Create)
+	router.Get("/admin/coupons", couponHandler.GetAll)
+	router.Patch("/admin/coupons/status/{id}", couponHandler.ToggleStatus)
+	router.Delete("/admin/coupons/{id}", couponHandler.Delete)
 
-	router.Get("/admin/dashboard/stats", dashboardH.GetStats)
+	router.Get("/admin/dashboard/stats", dashboardHandler.GetStats)
 }
 
-func FileServer(router chi.Router, path string, root webServer.FileSystem) {
-	if stringManipulation.ContainsAny(path, "{}*") {
+func setupFileServer(applicationRouter chi.Router, urlPath string, rootDirectory http.FileSystem) {
+	if strings.ContainsAny(urlPath, "{}*") {
 		panic("FileServer does not permit any URL parameters.")
 	}
 
-	if path != "/" && path[len(path)-1] != '/' {
-		router.Get(path, webServer.RedirectHandler(path+"/", webServer.StatusMovedPermanently).ServeHTTP)
-		path += "/"
+	if urlPath != "/" && urlPath[len(urlPath)-1] != '/' {
+		applicationRouter.Get(urlPath, http.RedirectHandler(urlPath+"/", http.StatusMovedPermanently).ServeHTTP)
+		urlPath += "/"
 	}
-	path += "*"
+	urlPath += "*"
 
-	router.Get(path, func(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
-		if stringManipulation.Contains(httpRequest.URL.Path, "..") {
-			webServer.Error(responseWriter, "Invalid path", webServer.StatusBadRequest)
+	applicationRouter.Get(urlPath, func(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+		if strings.Contains(httpRequest.URL.Path, "..") {
+			http.Error(responseWriter, "Invalid path", http.StatusBadRequest)
 			return
 		}
 
 		routeContext := chi.RouteContext(httpRequest.Context())
-		pathPrefix := stringManipulation.TrimSuffix(routeContext.RoutePattern(), "/*")
-		fileServerInstance := webServer.StripPrefix(pathPrefix, webServer.FileServer(root))
+		pathPrefix := strings.TrimSuffix(routeContext.RoutePattern(), "/*")
+		fileServerInstance := http.StripPrefix(pathPrefix, http.FileServer(rootDirectory))
 		fileServerInstance.ServeHTTP(responseWriter, httpRequest)
 	})
 }

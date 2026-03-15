@@ -2,8 +2,10 @@ package admin
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
+	usermodel "coffeebase-api/internal/models/user"
 	userstore "coffeebase-api/internal/store/user"
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -11,31 +13,45 @@ import (
 )
 
 type UserHandler struct {
-	UserStore *userstore.Store
+	userStore userstore.Store
 }
 
-func (userHandler *UserHandler) GetAll(responseWriter http.ResponseWriter, request *http.Request) {
-	userList, fetchError := userHandler.UserStore.GetAll()
-	if fetchError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+// --- Public ---
+
+func NewUserHandler(userStore userstore.Store) *UserHandler {
+	return &UserHandler{
+		userStore: userStore,
+	}
+}
+
+func (userHandler *UserHandler) GetAll(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	userList, error := userHandler.userStore.GetAll(httpRequest.Context())
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	json.NewEncoder(responseWriter).Encode(dto.MapUsersToResponse(userList))
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapUsersToResponse(userList))
 }
 
-func (userHandler *UserHandler) UpdateRole(responseWriter http.ResponseWriter, request *http.Request) {
-	userID, _ := strconv.Atoi(chi.URLParam(request, "id"))
-	var roleUpdateRequest struct {
-		Role string `json:"role"`
-	}
-	if decodeError := json.NewDecoder(request.Body).Decode(&roleUpdateRequest); decodeError != nil {
-		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
+func (userHandler *UserHandler) UpdateRole(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	userIDString := chi.URLParam(httpRequest, "id")
+	userID, conversionError := strconv.Atoi(userIDString)
+	if conversionError != nil {
+		response.SendError(responseWriter, apperrors.ErrInvalidID)
 		return
 	}
 
-	if updateError := userHandler.UserStore.UpdateRole(userID, roleUpdateRequest.Role); updateError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+	var request struct {
+		Role usermodel.UserRole `json:"role"`
+	}
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
+		return
+	}
+
+	if error := userHandler.userStore.UpdateRole(httpRequest.Context(), userID, request.Role); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 

@@ -13,23 +13,12 @@ type Client struct {
 	Send   chan interface{}
 }
 
-func (c *Client) WritePump() {
-	defer c.Conn.Close()
-	for {
-		message, ok := <-c.Send
-		if !ok {
-			// The hub closed the channel.
-			c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
-			return
-		}
-		c.Conn.WriteJSON(message)
-	}
+type Hub struct {
+	connections    map[int]map[*Client]bool
+	mutex          sync.RWMutex
 }
 
-type Hub struct {
-	connections map[int]map[*Client]bool
-	mu          sync.RWMutex
-}
+// --- Public ---
 
 func NewHub() *Hub {
 	return &Hub{
@@ -37,48 +26,59 @@ func NewHub() *Hub {
 	}
 }
 
-func (h *Hub) AddClient(client *Client) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.connections[client.UserID] == nil {
-		h.connections[client.UserID] = make(map[*Client]bool)
+func (clientInstance *Client) WritePump() {
+	defer clientInstance.Conn.Close()
+	for {
+		message, ok := <-clientInstance.Send
+		if !ok {
+			clientInstance.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
+		}
+		clientInstance.Conn.WriteJSON(message)
 	}
-	h.connections[client.UserID][client] = true
 }
 
-func (h *Hub) RemoveClient(client *Client) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if conns, ok := h.connections[client.UserID]; ok {
-		if _, exists := conns[client]; exists {
-			delete(conns, client)
-			close(client.Send) // Signal WritePump to exit
-			if len(conns) == 0 {
-				delete(h.connections, client.UserID)
+func (hubInstance *Hub) AddClient(client *Client) {
+	hubInstance.mutex.Lock()
+	defer hubInstance.mutex.Unlock()
+	if hubInstance.connections[client.UserID] == nil {
+		hubInstance.connections[client.UserID] = make(map[*Client]bool)
+	}
+	hubInstance.connections[client.UserID][client] = true
+}
+
+func (hubInstance *Hub) RemoveClient(client *Client) {
+	hubInstance.mutex.Lock()
+	defer hubInstance.mutex.Unlock()
+	if connectionsMap, ok := hubInstance.connections[client.UserID]; ok {
+		if _, exists := connectionsMap[client]; exists {
+			delete(connectionsMap, client)
+			close(client.Send)
+			if len(connectionsMap) == 0 {
+				delete(hubInstance.connections, client.UserID)
 			}
 		}
 	}
 }
 
-func (h *Hub) SendToUser(userID int, message interface{}) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	if conns, ok := h.connections[userID]; ok {
-		for client := range conns {
-			// Send message asynchronously over channel without blocking the lock
+func (hubInstance *Hub) SendToUser(userID int, message interface{}) {
+	hubInstance.mutex.RLock()
+	defer hubInstance.mutex.RUnlock()
+	if connectionsMap, ok := hubInstance.connections[userID]; ok {
+		for client := range connectionsMap {
 			select {
 			case client.Send <- message:
 			default:
-				// If the client's channel is blocked/full, we skip or handle it
 			}
 		}
 	}
 }
-func (h *Hub) Broadcast(message interface{}) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, conns := range h.connections {
-		for client := range conns {
+
+func (hubInstance *Hub) Broadcast(message interface{}) {
+	hubInstance.mutex.RLock()
+	defer hubInstance.mutex.RUnlock()
+	for _, connectionsMap := range hubInstance.connections {
+		for client := range connectionsMap {
 			select {
 			case client.Send <- message:
 			default:
@@ -86,4 +86,3 @@ func (h *Hub) Broadcast(message interface{}) {
 		}
 	}
 }
-

@@ -2,33 +2,29 @@ package handlers
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
 	productmodel "coffeebase-api/internal/models/product"
-	"encoding/json"
-	webServer "net/http"
-	numberParsing "strconv"
+	"coffeebase-api/internal/store/product"
+	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 )
 
-/**
- * ProductRepository defines the expected behavior for product data persistence.
- * Refactored to follow strictly declarative naming.
- */
-type ProductRepository interface {
-	GetAll(productFilter productmodel.Filter) ([]productmodel.Product, error)
-	GetByID(productID int) (productmodel.Product, error)
-	GetCategories() ([]string, error)
-}
-
-/**
- * ProductHandler manages product-related HTTP requests.
- * Refactored to eliminate all shorthands and follow strictly declarative naming.
- */
 type ProductHandler struct {
-	ProductStore ProductRepository
+	productStore product.Store
 }
 
-func (productHandler *ProductHandler) GetAll(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+// --- Public ---
+
+func NewProductHandler(productStore product.Store) *ProductHandler {
+	return &ProductHandler{
+		productStore: productStore,
+	}
+}
+
+func (productHandler *ProductHandler) GetAll(responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	queryParameters := httpRequest.URL.Query()
 
 	productFilter := productmodel.Filter{
@@ -36,42 +32,45 @@ func (productHandler *ProductHandler) GetAll(responseWriter webServer.ResponseWr
 		Category: queryParameters.Get("category"),
 	}
 
-	if minimumPrice := queryParameters.Get("min_price"); minimumPrice != "" {
-		productFilter.MinPrice, _ = numberParsing.ParseFloat(minimumPrice, 64)
+	if minimumPriceString := queryParameters.Get("min_price"); minimumPriceString != "" {
+		productFilter.MinPrice, _ = strconv.ParseFloat(minimumPriceString, 64)
 	}
-	if maximumPrice := queryParameters.Get("max_price"); maximumPrice != "" {
-		productFilter.MaxPrice, _ = numberParsing.ParseFloat(maximumPrice, 64)
+	if maximumPriceString := queryParameters.Get("max_price"); maximumPriceString != "" {
+		productFilter.MaxPrice, _ = strconv.ParseFloat(maximumPriceString, 64)
 	}
 
-	productList, fetchError := productHandler.ProductStore.GetAll(productFilter)
-	if fetchError != nil {
-		webServer.Error(responseWriter, "Internal server error", webServer.StatusInternalServerError)
-		return
-	}
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dto.MapProductsToResponse(productList))
-}
-
-func (productHandler *ProductHandler) GetByID(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
-	productIDString := chi.URLParam(httpRequest, "id")
-	productID, _ := numberParsing.Atoi(productIDString)
-
-	productInstance, fetchError := productHandler.ProductStore.GetByID(productID)
-	if fetchError != nil {
-		webServer.Error(responseWriter, "Product not found", webServer.StatusNotFound)
-		return
-	}
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dto.MapProductToResponse(productInstance))
-}
-
-func (productHandler *ProductHandler) GetCategories(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
-	categoryList, fetchError := productHandler.ProductStore.GetCategories()
-	if fetchError != nil {
-		webServer.Error(responseWriter, "Internal server error", webServer.StatusInternalServerError)
+	productList, error := productHandler.productStore.GetAll(httpRequest.Context(), productFilter)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 	
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(categoryList)
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapProductsToResponse(productList))
+}
+
+func (productHandler *ProductHandler) GetByID(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	productIDString := chi.URLParam(httpRequest, "id")
+	productID, conversionError := strconv.Atoi(productIDString)
+	if conversionError != nil {
+		response.SendError(responseWriter, apperrors.ErrInvalidID)
+		return
+	}
+
+	productInstance, error := productHandler.productStore.GetByID(httpRequest.Context(), productID)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrProductNotFound)
+		return
+	}
+	
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapProductToResponse(productInstance))
+}
+
+func (productHandler *ProductHandler) GetCategories(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	categoryList, error := productHandler.productStore.GetCategories(httpRequest.Context())
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
+		return
+	}
+	
+	response.SendJSON(responseWriter, http.StatusOK, categoryList)
 }

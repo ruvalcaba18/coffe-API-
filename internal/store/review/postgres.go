@@ -2,36 +2,31 @@ package review
 
 import (
 	reviewmodel "coffeebase-api/internal/models/review"
-	"database/sql"
+	"context"
 )
 
-type Store struct {
-	db *sql.DB
-}
+// --- Public ---
 
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
-}
-
-func (s *Store) Create(r *reviewmodel.Review) error {
+func (store *postgresStore) Create(requestContext context.Context, review *reviewmodel.Review) error {
 	query := `INSERT INTO reviews (product_id, user_id, rating, comment) VALUES ($1, $2, $3, $4) RETURNING id, created_at`
-	return s.db.QueryRow(query, r.ProductID, r.UserID, r.Rating, r.Comment).Scan(&r.ID, &r.CreatedAt)
+	return store.databaseConnection.QueryRowContext(requestContext, query, review.ProductID, review.UserID, review.Rating, review.Comment).Scan(&review.ID, &review.CreatedAt)
 }
 
-func (s *Store) GetByProductID(productID int) ([]reviewmodel.Review, error) {
-	rows, err := s.db.Query("SELECT id, product_id, user_id, rating, comment, created_at FROM reviews WHERE product_id = $1", productID)
-	if err != nil {
-		return nil, err
+func (store *postgresStore) GetByProductID(requestContext context.Context, productID int) ([]reviewmodel.Review, error) {
+	query := "SELECT id, product_id, user_id, rating, comment, created_at FROM reviews WHERE product_id = $1"
+	rows, error := store.databaseConnection.QueryContext(requestContext, query, productID)
+	if error != nil {
+		return nil, error
 	}
 	defer rows.Close()
 
 	var reviews []reviewmodel.Review
 	for rows.Next() {
-		var r reviewmodel.Review
-		if err := rows.Scan(&r.ID, &r.ProductID, &r.UserID, &r.Rating, &r.Comment, &r.CreatedAt); err != nil {
-			return nil, err
+		var reviewInstance reviewmodel.Review
+		if error := rows.Scan(&reviewInstance.ID, &reviewInstance.ProductID, &reviewInstance.UserID, &reviewInstance.Rating, &reviewInstance.Comment, &reviewInstance.CreatedAt); error != nil {
+			return nil, error
 		}
-		reviews = append(reviews, r)
+		reviews = append(reviews, reviewInstance)
 	}
 	return reviews, nil
 }

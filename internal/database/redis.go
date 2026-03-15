@@ -9,25 +9,24 @@ import (
 )
 
 func NewRedisClient() (*redis.Client, error) {
-	addr := os.Getenv("REDIS_ADDR")
+	redisAddress := os.Getenv("REDIS_ADDR")
 	password := os.Getenv("REDIS_PASSWORD")
 
-	if addr == "" {
-		addr = "localhost:6379"
+	if redisAddress == "" {
+		redisAddress = "localhost:6379"
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password, // no password set
-		DB:       0,        // use default DB
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     redisAddress,
+		Password: password, 
+		DB:       0,        
 	})
 
-	// Test connection
-	ctx := context.Background()
-	_, err := rdb.Ping(ctx).Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to redis: %v", err)
+	backgroundContext := context.Background()
+	_, error := redisClient.Ping(backgroundContext).Result()
+	if error != nil {
+		return nil, fmt.Errorf("failed to connect to redis: %v", error)
 	}
 
-	return rdb, nil
+	return redisClient, nil
 }

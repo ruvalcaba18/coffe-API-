@@ -2,138 +2,127 @@ package user
 
 import (
 	usermodel "coffeebase-api/internal/models/user"
+	"context"
 	"database/sql"
 )
 
-type Store struct {
-	db *sql.DB
-}
+// --- Public ---
 
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
-}
-
-func (s *Store) Create(u *usermodel.User) error {
-	if u.Language == "" {
-		u.Language = "es" 
+func (store *postgresStore) Create(context context.Context, user *usermodel.User) error {
+	if user.Language == "" {
+		user.Language = "es" 
 	}
-	if u.Role == "" {
-		u.Role = "customer"
+	if user.Role == "" {
+		user.Role = usermodel.RoleCustomer
 	}
 	query := `INSERT INTO users (username, email, password, language, avatar_url, role) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`
-	return s.db.QueryRow(query, u.Username, u.Email, u.Password, u.Language, u.AvatarURL, u.Role).Scan(&u.ID, &u.CreatedAt)
+	return store.databaseConnection.QueryRowContext(context, query, user.Username, user.Email, user.Password, user.Language, user.AvatarURL, user.Role).Scan(&user.ID, &user.CreatedAt)
 }
 
-func (s *Store) GetByEmail(email string) (usermodel.User, error) {
-	var u usermodel.User
-	var birthday sql.NullTime
-	query := `
-		SELECT 
-			id, username, email, password, 
-			COALESCE(language, 'es'), 
-			COALESCE(avatar_url, ''), 
-			role, 
-			total_orders_completed, total_spent, created_at,
-			COALESCE(first_name, ''),
-			COALESCE(last_name, ''),
-			birthday
-		FROM users 
-		WHERE LOWER(email) = LOWER($1)`
-	err := s.db.QueryRow(query, email).Scan(
-		&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, 
-		&u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt,
-		&u.FirstName, &u.LastName, &birthday,
-	)
-	if birthday.Valid {
-		u.Birthday = birthday.Time
-	}
-	return u, err
+func (store *postgresStore) GetByEmail(context context.Context, email string) (usermodel.User, error) {
+	query := store.getBaseUserQuery() + ` WHERE LOWER(email) = LOWER($1)`
+	row := store.databaseConnection.QueryRowContext(context, query, email)
+	return store.scanUserRow(row)
 }
 
-func (s *Store) GetByID(id int) (usermodel.User, error) {
-	var u usermodel.User
-	var birthday sql.NullTime
-	query := `
-		SELECT 
-			id, username, email, password, 
-			COALESCE(language, 'es'), 
-			COALESCE(avatar_url, ''), 
-			role, 
-			total_orders_completed, total_spent, created_at,
-			COALESCE(first_name, ''),
-			COALESCE(last_name, ''),
-			birthday
-		FROM users 
-		WHERE id = $1`
-	err := s.db.QueryRow(query, id).Scan(
-		&u.ID, &u.Username, &u.Email, &u.Password, &u.Language, &u.AvatarURL, &u.Role, 
-		&u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt,
-		&u.FirstName, &u.LastName, &birthday,
-	)
-	if birthday.Valid {
-		u.Birthday = birthday.Time
-	}
-	return u, err
+func (store *postgresStore) GetByID(context context.Context, id int) (usermodel.User, error) {
+	query := store.getBaseUserQuery() + ` WHERE id = $1`
+	row := store.databaseConnection.QueryRowContext(context, query, id)
+	return store.scanUserRow(row)
 }
 
-func (s *Store) UpdateAvatar(id int, avatarURL string) error {
+func (store *postgresStore) UpdateAvatar(context context.Context, id int, avatarURL string) error {
 	query := `UPDATE users SET avatar_url = $1 WHERE id = $2`
-	_, err := s.db.Exec(query, avatarURL, id)
-	return err
+	_, error := store.databaseConnection.ExecContext(context, query, avatarURL, id)
+	return error
 }
 
-func (s *Store) UpdateLanguage(id int, language string) error {
+func (store *postgresStore) UpdateLanguage(context context.Context, id int, language string) error {
 	query := `UPDATE users SET language = $1 WHERE id = $2`
-	_, err := s.db.Exec(query, language, id)
-	return err
+	_, error := store.databaseConnection.ExecContext(context, query, language, id)
+	return error
 }
 
-func (s *Store) GetTotalCount() (int, error) {
+func (store *postgresStore) GetTotalCount(context context.Context) (int, error) {
 	var count int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count)
-	return count, err
+	error := store.databaseConnection.QueryRowContext(context, `SELECT COUNT(*) FROM users`).Scan(&count)
+	return count, error
 }
 
-func (s *Store) GetAll() ([]usermodel.User, error) {
-	rows, err := s.db.Query(`
+func (store *postgresStore) GetAll(context context.Context) ([]usermodel.User, error) {
+	query := `
 		SELECT 
 			id, username, email, language, avatar_url, role, 
 			total_orders_completed, total_spent, created_at,
 			COALESCE(first_name, ''), COALESCE(last_name, ''), birthday 
-		FROM users ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, err
+		FROM users ORDER BY created_at DESC`
+	rows, error := store.databaseConnection.QueryContext(context, query)
+	if error != nil {
+		return nil, error
 	}
 	defer rows.Close()
 
 	var users []usermodel.User
 	for rows.Next() {
-		var u usermodel.User
+		var user usermodel.User
 		var birthday sql.NullTime
-		if err := rows.Scan(
-			&u.ID, &u.Username, &u.Email, &u.Language, &u.AvatarURL, &u.Role, 
-			&u.TotalOrdersCompleted, &u.TotalSpent, &u.CreatedAt,
-			&u.FirstName, &u.LastName, &birthday,
-		); err != nil {
-			return nil, err
+		if error := rows.Scan(
+			&user.ID, &user.Username, &user.Email, &user.Language, &user.AvatarURL, &user.Role, 
+			&user.TotalOrdersCompleted, &user.TotalSpent, &user.CreatedAt,
+			&user.FirstName, &user.LastName, &birthday,
+		); error != nil {
+			return nil, error
 		}
 		if birthday.Valid {
-			u.Birthday = birthday.Time
+			user.Birthday = birthday.Time
 		}
-		users = append(users, u)
+		users = append(users, user)
 	}
 	return users, nil
 }
 
-func (s *Store) UpdateRole(id int, role string) error {
+func (store *postgresStore) UpdateRole(context context.Context, id int, role usermodel.UserRole) error {
 	query := `UPDATE users SET role = $1 WHERE id = $2`
-	_, err := s.db.Exec(query, role, id)
-	return err
+	_, error := store.databaseConnection.ExecContext(context, query, role, id)
+	return error
 }
 
-func (s *Store) Update(u *usermodel.User) error {
+func (store *postgresStore) Update(context context.Context, user *usermodel.User) error {
 	query := `UPDATE users SET first_name = $1, last_name = $2, birthday = $3, language = $4, username = $5 WHERE id = $6`
-	_, err := s.db.Exec(query, u.FirstName, u.LastName, u.Birthday, u.Language, u.Username, u.ID)
-	return err
+	_, error := store.databaseConnection.ExecContext(context, query, user.FirstName, user.LastName, user.Birthday, user.Language, user.Username, user.ID)
+	return error
 }
 
+// --- Private ---
+
+func (store *postgresStore) getBaseUserQuery() string {
+	return `
+		SELECT 
+			id, username, email, password, 
+			COALESCE(language, 'es'), 
+			COALESCE(avatar_url, ''), 
+			role, 
+			total_orders_completed, total_spent, created_at,
+			COALESCE(first_name, ''),
+			COALESCE(last_name, ''),
+			birthday
+		FROM users`
+}
+
+type rowScanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func (store *postgresStore) scanUserRow(row rowScanner) (usermodel.User, error) {
+	var user usermodel.User
+	var birthday sql.NullTime
+	error := row.Scan(
+		&user.ID, &user.Username, &user.Email, &user.Password, &user.Language, &user.AvatarURL, &user.Role, 
+		&user.TotalOrdersCompleted, &user.TotalSpent, &user.CreatedAt,
+		&user.FirstName, &user.LastName, &birthday,
+	)
+	if birthday.Valid {
+		user.Birthday = birthday.Time
+	}
+	return user, error
+}

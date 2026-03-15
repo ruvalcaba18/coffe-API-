@@ -2,173 +2,178 @@ package handlers
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/middleware"
-	userStorePackage "coffeebase-api/internal/store/user"
-	"encoding/json"
-	outputFormatting "fmt"
+	usermodel "coffeebase-api/internal/models/user"
+	"coffeebase-api/internal/store/user"
+	"fmt"
 	"io"
-	webServer "net/http"
+	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
-	stringManipulation "strings"
+	"strings"
 	"time"
 )
 
 type UserHandler struct {
-	UserStore *userStorePackage.Store
+	userStore user.Store
 }
 
-func (userHandler *UserHandler) UpdateProfile(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
-	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
+// --- Public ---
 
-	var updateRequest dto.UpdateProfileRequest
-	if err := json.NewDecoder(httpRequest.Body).Decode(&updateRequest); err != nil {
-		webServer.Error(responseWriter, "Invalid request body", webServer.StatusBadRequest)
-		return
+func NewUserHandler(userStore user.Store) *UserHandler {
+	return &UserHandler{
+		userStore: userStore,
 	}
-
-	user, err := userHandler.UserStore.GetByID(currentUserID)
-	if err != nil {
-		webServer.Error(responseWriter, "User not found", webServer.StatusNotFound)
-		return
-	}
-
-	if updateRequest.FirstName != "" {
-		user.FirstName = updateRequest.FirstName
-	}
-	if updateRequest.LastName != "" {
-		user.LastName = updateRequest.LastName
-	}
-	if updateRequest.Language != "" {
-		user.Language = updateRequest.Language
-	}
-	if updateRequest.Birthday != "" {
-		birthday, err := time.Parse("2006-01-02", updateRequest.Birthday)
-		if err == nil {
-			user.Birthday = birthday
-		}
-	}
-
-	if err := userHandler.UserStore.Update(&user); err != nil {
-		webServer.Error(responseWriter, "Failed to update profile", webServer.StatusInternalServerError)
-		return
-	}
-
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dto.MapUserToResponse(user))
 }
 
-func (userHandler *UserHandler) UpdateLanguage(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (userHandler *UserHandler) UpdateProfile(responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
-	var languageUpdateRequest dto.UpdateLanguageRequest
-	decodingError := json.NewDecoder(httpRequest.Body).Decode(&languageUpdateRequest)
-	if decodingError != nil {
-		webServer.Error(responseWriter, "Invalid request body", webServer.StatusBadRequest)
+	var request dto.UpdateProfileRequest
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
-	validLanguages := map[string]bool{
-		"es":  true,
-		"en":  true,
-		"fr":  true,
-		"de":  true,
-		"gsw": true,
-	}
-
-	if !validLanguages[languageUpdateRequest.Language] {
-		webServer.Error(responseWriter, "Invalid language. Supported: es, en, fr, de, gsw", webServer.StatusBadRequest)
+	userInstance, error := userHandler.userStore.GetByID(httpRequest.Context(), currentUserID)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrUserNotFound)
 		return
 	}
 
-	updateError := userHandler.UserStore.UpdateLanguage(currentUserID, languageUpdateRequest.Language)
-	if updateError != nil {
-		webServer.Error(responseWriter, "Internal server error", webServer.StatusInternalServerError)
+	userHandler.applyProfileUpdates(&userInstance, request)
+
+	if error := userHandler.userStore.Update(httpRequest.Context(), &userInstance); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	responseWriter.WriteHeader(webServer.StatusOK)
-	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Language updated successfully"})
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapUserToResponse(userInstance))
 }
 
-func (userHandler *UserHandler) UploadAvatar(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (userHandler *UserHandler) UpdateLanguage(responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
-	const maximumAllowedFileSize = 2 << 20
-	httpRequest.ParseMultipartForm(maximumAllowedFileSize)
+	var request dto.UpdateLanguageRequest
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
+		return
+	}
 
-	uploadedFile, fileHeader, retrievalError := httpRequest.FormFile("avatar")
-	if retrievalError != nil {
-		webServer.Error(responseWriter, "Error retrieving the file", webServer.StatusBadRequest)
+	if !isValidLanguage(request.Language) {
+		response.SendError(responseWriter, apperrors.ErrInvalidRequest)
+		return
+	}
+
+	if error := userHandler.userStore.UpdateLanguage(httpRequest.Context(), currentUserID, request.Language); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
+		return
+	}
+
+	response.SendJSON(responseWriter, http.StatusOK, map[string]string{"message": "Language updated successfully"})
+}
+
+func (userHandler *UserHandler) UploadAvatar(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
+
+	uploadedFile, fileHeader, error := userHandler.retrieveAndValidateFile(httpRequest)
+	if error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 	defer uploadedFile.Close()
 
-	if fileHeader.Size > maximumAllowedFileSize {
-		webServer.Error(responseWriter, "File is too large. Maximum size allowed is 2MB.", webServer.StatusRequestEntityTooLarge)
-		return
-	}
-	uploadDirectoryPath := "./uploads/avatars"
-	os.MkdirAll(uploadDirectoryPath, os.ModePerm)
-	fileExtension := filepath.Ext(fileHeader.Filename)
-	allowedExtensions := map[string]bool{
-		".jpg":  true,
-		".jpeg": true,
-		".png":  true,
-		".gif":  true,
-		".webp": true,
-	}
-	if !allowedExtensions[fileExtension] {
-		webServer.Error(responseWriter, "Invalid file type. Only JPG, PNG, GIF and WEBP are allowed.", webServer.StatusBadRequest)
+	avatarURL, error := userHandler.processAndSaveAvatar(currentUserID, uploadedFile, fileHeader)
+	if error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
-	typeDetectionBuffer := make([]byte, 512)
-	if _, readingError := uploadedFile.Read(typeDetectionBuffer); readingError != nil {
-		webServer.Error(responseWriter, "Error reading file", webServer.StatusInternalServerError)
-		return
-	}
-	detectedContentType := webServer.DetectContentType(typeDetectionBuffer)
-	if !stringManipulation.HasPrefix(detectedContentType, "image/") {
-		webServer.Error(responseWriter, "File is not a valid image", webServer.StatusBadRequest)
-		return
-	}
-	uploadedFile.Seek(0, io.SeekStart)
-
-	uniqueFilename := outputFormatting.Sprintf("%d_%d%s", currentUserID, time.Now().Unix(), fileExtension)
-	targetFilePath := filepath.Join(uploadDirectoryPath, uniqueFilename)
-
-	destinationFile, creationError := os.Create(targetFilePath)
-	if creationError != nil {
-		webServer.Error(responseWriter, "Error saving the file", webServer.StatusInternalServerError)
-		return
-	}
-	defer destinationFile.Close()
-
-	if _, copyingError := io.Copy(destinationFile, uploadedFile); copyingError != nil {
-		webServer.Error(responseWriter, "Error saving the file", webServer.StatusInternalServerError)
+	if error := userHandler.userStore.UpdateAvatar(httpRequest.Context(), currentUserID, avatarURL); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	avatarPublicURL := outputFormatting.Sprintf("/uploads/avatars/%s", uniqueFilename)
-	savingError := userHandler.UserStore.UpdateAvatar(currentUserID, avatarPublicURL)
-	if savingError != nil {
-		webServer.Error(responseWriter, "Error updating user profile", webServer.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(responseWriter).Encode(map[string]string{"avatar_url": avatarPublicURL})
+	response.SendJSON(responseWriter, http.StatusOK, map[string]string{"avatar_url": avatarURL})
 }
 
-func (userHandler *UserHandler) GetProfile(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
+func (userHandler *UserHandler) GetProfile(responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
-	userInstance, fetchError := userHandler.UserStore.GetByID(currentUserID)
-	if fetchError != nil {
-		webServer.Error(responseWriter, "User not found", webServer.StatusNotFound)
+	userInstance, error := userHandler.userStore.GetByID(httpRequest.Context(), currentUserID)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrUserNotFound)
 		return
 	}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dto.MapUserToResponse(userInstance))
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapUserToResponse(userInstance))
+}
+
+// --- Private ---
+
+func (userHandler *UserHandler) applyProfileUpdates(userInstance *usermodel.User, request dto.UpdateProfileRequest) {
+	if request.FirstName != "" {
+		userInstance.FirstName = request.FirstName
+	}
+	if request.LastName != "" {
+		userInstance.LastName = request.LastName
+	}
+	if request.Language != "" {
+		userInstance.Language = request.Language
+	}
+	if request.Birthday != "" {
+		if birthday, error := time.Parse("2006-01-02", request.Birthday); error == nil {
+			userInstance.Birthday = birthday
+		}
+	}
+}
+
+func (userHandler *UserHandler) retrieveAndValidateFile(httpRequest *http.Request) (multipart.File, *multipart.FileHeader, error) {
+	const maximumAllowedFileSize = 2 << 20 
+	httpRequest.ParseMultipartForm(maximumAllowedFileSize)
+
+	file, fileHeader, error := httpRequest.FormFile("avatar")
+	if error != nil {
+		return nil, nil, apperrors.ErrInvalidRequest
+	}
+
+	if fileHeader.Size > maximumAllowedFileSize {
+		file.Close()
+		return nil, nil, fmt.Errorf("file is too large, max 2MB")
+	}
+
+	return file, fileHeader, nil
+}
+
+func (userHandler *UserHandler) processAndSaveAvatar(userID int, file io.Reader, header *multipart.FileHeader) (string, error) {
+	extension := filepath.Ext(header.Filename)
+	if !isAllowedImageExtension(extension) {
+		return "", fmt.Errorf("invalid file type")
+	}
+
+	uploadDir := "./uploads/avatars"
+	os.MkdirAll(uploadDir, os.ModePerm)
+
+	uniqueName := fmt.Sprintf("%d_%d%s", userID, time.Now().Unix(), extension)
+	targetPath := filepath.Join(uploadDir, uniqueName)
+
+	dest, error := os.Create(targetPath)
+	if error != nil {
+		return "", apperrors.ErrInternalServerError
+	}
+	defer dest.Close()
+
+	if _, error := io.Copy(dest, file); error != nil {
+		return "", apperrors.ErrInternalServerError
+	}
+
+	return fmt.Sprintf("/uploads/avatars/%s", uniqueName), nil
+}
+
+func isAllowedImageExtension(ext string) bool {
+	allowed := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true}
+	return allowed[strings.ToLower(ext)]
 }

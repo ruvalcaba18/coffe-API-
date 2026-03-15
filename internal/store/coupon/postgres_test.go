@@ -1,6 +1,7 @@
 package coupon
 
 import (
+	"context"
 	"regexp"
 	"testing"
 
@@ -9,37 +10,35 @@ import (
 )
 
 func TestStore_IncrementUsage(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to open sqlmock: %s", err)
+	databaseMock, sqlMock, error := sqlmock.New()
+	if error != nil {
+		t.Fatalf("failed to open sqlmock: %s", error)
 	}
-	defer db.Close()
+	defer databaseMock.Close()
 
-	s := NewStore(db)
+	couponStore := NewStore(databaseMock)
 
 	code := "PROMO2024"
 
-	// Case 1: Without transaction
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE coupons SET used_count = used_count + 1 WHERE code = $1")).
+	sqlMock.ExpectExec(regexp.QuoteMeta("UPDATE coupons SET used_count = used_count + 1 WHERE code = $1")).
 		WithArgs(code).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err = s.IncrementUsage(nil, code)
-	assert.NoError(t, err)
+	error = couponStore.IncrementUsage(context.Background(), nil, code)
+	assert.NoError(t, error)
 
-	// Case 2: With transaction
-	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE coupons SET used_count = used_count + 1 WHERE code = $1")).
+	sqlMock.ExpectBegin()
+	sqlMock.ExpectExec(regexp.QuoteMeta("UPDATE coupons SET used_count = used_count + 1 WHERE code = $1")).
 		WithArgs(code).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
+	sqlMock.ExpectCommit()
 
-	tx, _ := db.Begin()
-	err = s.IncrementUsage(tx, code)
-	tx.Commit()
-	assert.NoError(t, err)
+	transaction, _ := databaseMock.Begin()
+	error = couponStore.IncrementUsage(context.Background(), transaction, code)
+	transaction.Commit()
+	assert.NoError(t, error)
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("there were unfulfilled expectations: %s", err)
+	if error := sqlMock.ExpectationsWereMet(); error != nil {
+		t.Errorf("there were unfulfilled expectations: %s", error)
 	}
 }

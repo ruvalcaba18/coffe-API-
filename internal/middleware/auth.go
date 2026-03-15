@@ -1,9 +1,9 @@
 package middleware
 
 import (
+	"coffeebase-api/api/response"
 	"coffeebase-api/internal/auth"
 	"context"
-	"log"
 	"net/http"
 	"strings"
 )
@@ -13,61 +13,65 @@ type contextKey string
 const UserIDKey contextKey = "user_id"
 const UserRoleKey contextKey = "user_role"
 
+// --- Public ---
+
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(responseWriter http.ResponseWriter, httpRequest *http.Request) {
-		var authenticationToken string
-
-		authorizationHeader := httpRequest.Header.Get("Authorization")
-		if authorizationHeader != "" {
-			headerParts := strings.Split(authorizationHeader, " ")
-			if len(headerParts) == 2 && headerParts[0] == "Bearer" {
-				authenticationToken = headerParts[1]
-			}
-		}
-
-		if authenticationToken == "" {
-			authenticationToken = httpRequest.URL.Query().Get("token")
-		}
-
-		if authenticationToken == "" {
-			http.Error(responseWriter, "Authentication required: no bearer token provided", http.StatusUnauthorized)
+		token := retrieveToken(httpRequest)
+		if token == "" {
+			response.Unauthorized(responseWriter, "Authentication required")
 			return
 		}
 
-		tokenClaims, validationError := auth.ValidateToken(authenticationToken)
-		if validationError != nil {
-			log.Printf("Token validation error: %v", validationError)
-			http.Error(responseWriter, "Session expired or invalid token", http.StatusUnauthorized)
+		claims, error := auth.ValidateToken(token)
+		if error != nil {
+			response.Unauthorized(responseWriter, "Invalid or expired token")
 			return
 		}
 
-		requesterIP := httpRequest.Header.Get("X-Forwarded-For")
-		if requesterIP == "" {
-			requesterIP = httpRequest.RemoteAddr
-		}
-		requesterUserAgent := httpRequest.Header.Get("User-Agent")
-		currentClientFingerprint := auth.GenerateClientFingerprint(requesterIP, requesterUserAgent)
-
-		// Bypass fingerprint check in local development if needed, 
-		// but let's try to fix it by getting the right IP first.
-		if tokenClaims.ClientFingerprint != currentClientFingerprint {
-			log.Printf("Fingerprint mismatch: token=%s, current=%s (IP: %s)", tokenClaims.ClientFingerprint, currentClientFingerprint, requesterIP)
-			
-			isLocal := strings.HasPrefix(requesterIP, "127.0.0.1") || 
-					   strings.HasPrefix(requesterIP, "::1") || 
-					   strings.HasPrefix(requesterIP, "[::1]") ||
-					   requesterIP == "localhost"
-					   
-			if !isLocal {
-				http.Error(responseWriter, "Security Violation: Access denied due to unauthorized device signature", http.StatusForbidden)
-				return
-			}
-			log.Printf("Bypassing fingerprint check for local connection: %s", requesterIP)
+		if !validateFingerprint(httpRequest, claims.ClientFingerprint) {
+			response.Forbidden(responseWriter, "Security Violation: Unauthorized device signature")
+			return
 		}
 
-		requestContext := context.WithValue(httpRequest.Context(), UserIDKey, tokenClaims.UserID)
-		requestContext = context.WithValue(requestContext, UserRoleKey, tokenClaims.Role)
+		requestContext := context.WithValue(httpRequest.Context(), UserIDKey, claims.UserID)
+		requestContext = context.WithValue(requestContext, UserRoleKey, claims.Role)
 		
 		next.ServeHTTP(responseWriter, httpRequest.WithContext(requestContext))
 	})
+}
+
+// --- Private ---
+
+func retrieveToken(httpRequest *http.Request) string {
+	authHeader := httpRequest.Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.Split(authHeader, " ")
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			return parts[1]
+		}
+	}
+	return httpRequest.URL.Query().Get("token")
+}
+
+func validateFingerprint(httpRequest *http.Request, tokenFingerprint string) bool {
+	ip := httpRequest.Header.Get("X-Forwarded-For")
+	if ip == "" {
+		ip = httpRequest.RemoteAddr
+	}
+	userAgent := httpRequest.Header.Get("User-Agent")
+	currentFingerprint := auth.GenerateClientFingerprint(ip, userAgent)
+
+	if tokenFingerprint == currentFingerprint {
+		return true
+	}
+
+	return isLocalAddress(ip)
+}
+
+func isLocalAddress(ip string) bool {
+	return strings.HasPrefix(ip, "127.0.0.1") || 
+		   strings.HasPrefix(ip, "::1") || 
+		   strings.HasPrefix(ip, "[::1]") ||
+		   ip == "localhost"
 }

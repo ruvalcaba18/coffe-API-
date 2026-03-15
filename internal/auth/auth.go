@@ -15,14 +15,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func getSecretKey() []byte {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return []byte("my-secret-key-12345")
-	}
-	return []byte(secret)
-}
-
 type Claims struct {
 	UserID            int    `json:"user_id"`
 	Role              string `json:"role"`
@@ -30,71 +22,74 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(userID int, role string, clientIP string, userAgent string) (string, error) {
-	expirationDuration := 2 * time.Hour
-	tokenExpirationTime := time.Now().Add(expirationDuration)
-	
-	uniqueClientFingerprint := GenerateClientFingerprint(clientIP, userAgent)
-	
-	sessionIdentifier := uuid.New().String()
+// --- Public ---
 
-	tokenClaims := &Claims{
+func GenerateToken(userID int, role string, clientIP string, userAgent string) (string, error) {
+	expiration := 2 * time.Hour
+	expiresAt := time.Now().Add(expiration)
+	fingerprint := GenerateClientFingerprint(clientIP, userAgent)
+	sessionID := uuid.New().String()
+
+	claims := &Claims{
 		UserID:            userID,
 		Role:              role,
-		ClientFingerprint: uniqueClientFingerprint,
+		ClientFingerprint: fingerprint,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        sessionIdentifier,
-			ExpiresAt: jwt.NewNumericDate(tokenExpirationTime),
+			ID:        sessionID,
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 		},
 	}
 
-	signedToken := jwt.NewWithClaims(jwt.SigningMethodHS256, tokenClaims)
-	return signedToken.SignedString(getSecretKey())
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(getSecretKey())
 }
 
 func ValidateToken(tokenString string) (*Claims, error) {
-	tokenClaims := &Claims{}
-	parsedToken, parsingError := jwt.ParseWithClaims(tokenString, tokenClaims, func(token *jwt.Token) (interface{}, error) {
+	claims := &Claims{}
+	token, error := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		return getSecretKey(), nil
 	})
 
-	if parsingError != nil {
-		return nil, parsingError
+	if error != nil {
+		return nil, error
 	}
 
-	if !parsedToken.Valid {
-		return nil, errors.New("the provided token is no longer valid")
+	if !token.Valid {
+		return nil, errors.New("invalid token")
 	}
 
-	return tokenClaims, nil
+	return claims, nil
 }
 
-func GenerateClientFingerprint(ipAddress string, userAgent string) string {
-	normalizedIP := ipAddress
-	
-	// Try to split host and port
-	host, _, err := net.SplitHostPort(ipAddress)
-	if err == nil {
+func GenerateClientFingerprint(ip string, userAgent string) string {
+	normalizedIP := ip
+	if host, _, error := net.SplitHostPort(ip); error == nil {
 		normalizedIP = host
 	}
-
-	// Clean up IPv6 brackets if still present
 	normalizedIP = strings.TrimPrefix(normalizedIP, "[")
 	normalizedIP = strings.TrimSuffix(normalizedIP, "]")
 
-	combinedAttributes := fmt.Sprintf("%s|%s", normalizedIP, userAgent)
-	attributeHash := sha256.Sum256([]byte(combinedAttributes))
-	return hex.EncodeToString(attributeHash[:])
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%s|%s", normalizedIP, userAgent)))
+	return hex.EncodeToString(hash[:])
 }
 
-func HashPassword(rawPassword string) (string, error) {
-	passwordBytes, hashingError := bcrypt.GenerateFromPassword([]byte(rawPassword), 14)
-	return string(passwordBytes), hashingError
+func HashPassword(password string) (string, error) {
+	bytes, error := bcrypt.GenerateFromPassword([]byte(password), 14)
+	return string(bytes), error
 }
 
-func CheckPasswordHash(rawPassword string, storedHash string) bool {
-	comparisonError := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(rawPassword))
-	return comparisonError == nil
+func CheckPasswordHash(password, hash string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
+
+// --- Private ---
+
+func getSecretKey() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return []byte("my-secret-key-12345")
+	}
+	return []byte(secret)
 }

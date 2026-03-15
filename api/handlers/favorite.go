@@ -2,9 +2,10 @@ package handlers
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/middleware"
 	"coffeebase-api/internal/store/favorite"
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -12,49 +13,59 @@ import (
 )
 
 type FavoriteHandler struct {
-	FavoriteStore *favorite.Store
+	favoriteStore favorite.Store
 }
 
-func (favoriteHandler *FavoriteHandler) Add(responseWriter http.ResponseWriter, request *http.Request) {
-	userID := request.Context().Value(middleware.UserIDKey).(int)
+// --- Public ---
 
-	var addInput dto.FavoriteRequest
-	if decodeError := json.NewDecoder(request.Body).Decode(&addInput); decodeError != nil {
-		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
-		return
+func NewFavoriteHandler(favoriteStore favorite.Store) *FavoriteHandler {
+	return &FavoriteHandler{
+		favoriteStore: favoriteStore,
 	}
-
-	if additionError := favoriteHandler.FavoriteStore.Add(userID, addInput.ProductID); additionError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	responseWriter.WriteHeader(http.StatusOK)
-	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Product added to favorites"})
 }
 
-func (favoriteHandler *FavoriteHandler) Remove(responseWriter http.ResponseWriter, request *http.Request) {
-	userID := request.Context().Value(middleware.UserIDKey).(int)
-	productIdentifier, _ := strconv.Atoi(chi.URLParam(request, "id"))
+func (favoriteHandler *FavoriteHandler) Add(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	userID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 
-	if removalError := favoriteHandler.FavoriteStore.Remove(userID, productIdentifier); removalError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+	var request dto.FavoriteRequest
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
-	responseWriter.WriteHeader(http.StatusOK)
-	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Product removed from favorites"})
+	if error := favoriteHandler.favoriteStore.Add(httpRequest.Context(), userID, request.ProductID); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
+		return
+	}
+
+	response.SendJSON(responseWriter, http.StatusOK, map[string]string{"message": "Product added to favorites"})
 }
 
-func (favoriteHandler *FavoriteHandler) GetUserFavorites(responseWriter http.ResponseWriter, request *http.Request) {
-	userID := request.Context().Value(middleware.UserIDKey).(int)
-
-	favoriteList, fetchError := favoriteHandler.FavoriteStore.GetUserFavorites(userID)
-	if fetchError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+func (favoriteHandler *FavoriteHandler) Remove(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	userID := httpRequest.Context().Value(middleware.UserIDKey).(int)
+	productIDString := chi.URLParam(httpRequest, "id")
+	productID, conversionError := strconv.Atoi(productIDString)
+	if conversionError != nil {
+		response.SendError(responseWriter, apperrors.ErrInvalidID)
 		return
 	}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dto.MapProductsToResponse(favoriteList))
+	if error := favoriteHandler.favoriteStore.Remove(httpRequest.Context(), userID, productID); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
+		return
+	}
+
+	response.SendJSON(responseWriter, http.StatusOK, map[string]string{"message": "Product removed from favorites"})
+}
+
+func (favoriteHandler *FavoriteHandler) GetUserFavorites(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	userID := httpRequest.Context().Value(middleware.UserIDKey).(int)
+
+	favoriteList, error := favoriteHandler.favoriteStore.GetUserFavorites(httpRequest.Context(), userID)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
+		return
+	}
+
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapProductsToResponse(favoriteList))
 }

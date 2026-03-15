@@ -16,32 +16,38 @@ var websocketUpgrader = websocket.Upgrader{
 }
 
 type NotificationHandler struct {
-	NotificationHub *notifications.Hub
+	notificationHub *notifications.Hub
 }
 
-func (notificationHandler *NotificationHandler) HandleWS(responseWriter http.ResponseWriter, request *http.Request) {
-	currentUserID := request.Context().Value(middleware.UserIDKey).(int)
+// --- Public ---
 
-	websocketConnection, upgradeError := websocketUpgrader.Upgrade(responseWriter, request, nil)
+func NewNotificationHandler(notificationHub *notifications.Hub) *NotificationHandler {
+	return &NotificationHandler{
+		notificationHub: notificationHub,
+	}
+}
+
+func (notificationHandler *NotificationHandler) HandleWS(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	currentUserID := httpRequest.Context().Value(middleware.UserIDKey).(int)
+
+	websocketConnection, upgradeError := websocketUpgrader.Upgrade(responseWriter, httpRequest, nil)
 	if upgradeError != nil {
 		return
 	}
 	defer websocketConnection.Close()
 
 	notificationClient := &notifications.Client{
-		Hub:    notificationHandler.NotificationHub,
+		Hub:    notificationHandler.notificationHub,
 		UserID: currentUserID,
 		Conn:   websocketConnection,
 		Send:   make(chan interface{}, 256),
 	}
 
-	notificationHandler.NotificationHub.AddClient(notificationClient)
-	defer notificationHandler.NotificationHub.RemoveClient(notificationClient)
+	notificationHandler.notificationHub.AddClient(notificationClient)
+	defer notificationHandler.notificationHub.RemoveClient(notificationClient)
 
-	// Iniciar la goroutine de escritura asíncrona
 	go notificationClient.WritePump()
 
-	// Keep connection alive and read incoming messages
 	for {
 		var incomingMessage map[string]interface{}
 		readingError := websocketConnection.ReadJSON(&incomingMessage)
@@ -49,19 +55,22 @@ func (notificationHandler *NotificationHandler) HandleWS(responseWriter http.Res
 			break
 		}
 
-		// Handle Incoming Message
-		if incomingMessage["type"] == "chat_message" {
-			// Broadcast to all (for now) or process
-			// Example: Auto-reply from Barista
-			go func() {
-				time.Sleep(1 * time.Second)
-				autoReplyMessage := map[string]interface{}{
-					"type":    "chat_message",
-					"message": "¡Recibido! Un barista se pondrá en contacto contigo pronto.",
-					"sender":  "support",
-				}
-				notificationHandler.NotificationHub.SendToUser(currentUserID, autoReplyMessage)
-			}()
-		}
+		notificationHandler.handleIncomingWSMessage(currentUserID, incomingMessage)
+	}
+}
+
+// --- Private ---
+
+func (notificationHandler *NotificationHandler) handleIncomingWSMessage(userID int, message map[string]interface{}) {
+	if message["type"] == "chat_message" {
+		go func() {
+			time.Sleep(1 * time.Second)
+			autoReply := map[string]interface{}{
+				"type":    "chat_message",
+				"message": "¡Recibido! Un barista se pondrá en contacto contigo pronto.",
+				"sender":  "support",
+			}
+			notificationHandler.notificationHub.SendToUser(userID, autoReply)
+		}()
 	}
 }

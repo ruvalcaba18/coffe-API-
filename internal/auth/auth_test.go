@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"coffeebase-api/internal/models/user"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,28 +9,28 @@ import (
 
 func TestTokenGenerationAndValidation(t *testing.T) {
 	userID := 123
-	role := "admin"
-	ip := "192.168.1.1"
-	ua := "Mozilla/5.0"
+	role := string(user.RoleAdmin)
+	ipAddress := "192.168.1.1"
+	userAgent := "Mozilla/5.0"
 
-	token, err := GenerateToken(userID, role, ip, ua)
-	assert.NoError(t, err)
+	token, error := GenerateToken(userID, role, ipAddress, userAgent)
+	assert.NoError(t, error)
 	assert.NotEmpty(t, token)
 
-	claims, err := ValidateToken(token)
-	assert.NoError(t, err)
+	claims, error := ValidateToken(token)
+	assert.NoError(t, error)
 	assert.Equal(t, userID, claims.UserID)
 	assert.Equal(t, role, claims.Role)
 	
-	fingerprint := GenerateClientFingerprint(ip, ua)
+	fingerprint := GenerateClientFingerprint(ipAddress, userAgent)
 	assert.Equal(t, fingerprint, claims.ClientFingerprint)
 }
 
 func TestPasswordHashing(t *testing.T) {
 	password := "super-secure-password"
 	
-	hash, err := HashPassword(password)
-	assert.NoError(t, err)
+	hash, error := HashPassword(password)
+	assert.NoError(t, error)
 	assert.NotEqual(t, password, hash)
 
 	assert.True(t, CheckPasswordHash(password, hash))
@@ -37,11 +38,10 @@ func TestPasswordHashing(t *testing.T) {
 }
 
 func TestGenerateClientFingerprint_IPV6(t *testing.T) {
-	ip := "[::1]:1234"
-	ua := "Go-Client"
+	ipAddress := "[::1]:1234"
+	userAgent := "Go-Client"
 	
-	fingerprint1 := GenerateClientFingerprint(ip, ua)
-	fingerprint2 := GenerateClientFingerprint("[::1]:5678", ua) // Different port, same IP
-	
+	fingerprint1 := GenerateClientFingerprint(ipAddress, userAgent)
+	fingerprint2 := GenerateClientFingerprint("[::1]:5678", userAgent) 
 	assert.Equal(t, fingerprint1, fingerprint2)
 }

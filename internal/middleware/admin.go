@@ -1,16 +1,29 @@
 package middleware
 
 import (
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/models/user"
 	"net/http"
 )
 
+// --- Public ---
+
 func AdminMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		role, ok := r.Context().Value(UserRoleKey).(string)
-		if !ok || (role != "admin" && role != "superadmin") {
-			http.Error(w, "Forbidden: Admin access required", http.StatusForbidden)
+	return http.HandlerFunc(func(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+		roleValue, ok := httpRequest.Context().Value(UserRoleKey).(string)
+		role := user.UserRole(roleValue)
+		
+		if !ok || !hasStaffAccess(role) {
+			response.Forbidden(responseWriter, "Staff access required")
 			return
 		}
-		next.ServeHTTP(w, r)
+		
+		next.ServeHTTP(responseWriter, httpRequest)
 	})
+}
+
+// --- Private ---
+
+func hasStaffAccess(role user.UserRole) bool {
+	return role == user.RoleAdmin || role == user.RoleSuperAdmin || role == user.RoleBarista
 }

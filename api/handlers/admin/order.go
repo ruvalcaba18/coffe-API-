@@ -2,61 +2,80 @@ package admin
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/notifications"
 	orderstore "coffeebase-api/internal/store/order"
-	"encoding/json"
+	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type OrderHandler struct {
-	OrderStore      *orderstore.Store
-	NotificationHub *notifications.Hub
+	orderStore      orderstore.Store
+	notificationHub *notifications.Hub
 }
 
-func (orderHandler *OrderHandler) GetAll(responseWriter http.ResponseWriter, request *http.Request) {
-	orderList, fetchError := orderHandler.OrderStore.GetAll()
-	if fetchError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+// --- Public ---
+
+func NewOrderHandler(orderStore orderstore.Store, notificationHub *notifications.Hub) *OrderHandler {
+	return &OrderHandler{
+		orderStore:      orderStore,
+		notificationHub: notificationHub,
+	}
+}
+
+func (orderHandler *OrderHandler) GetAll(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	orderList, error := orderHandler.orderStore.GetAll(httpRequest.Context())
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(dto.MapOrdersToResponse(orderList))
+	response.SendJSON(responseWriter, http.StatusOK, dto.MapOrdersToResponse(orderList))
 }
 
-func (orderHandler *OrderHandler) UpdateStatus(responseWriter http.ResponseWriter, request *http.Request) {
-	orderIdentifier := chi.URLParam(request, "id")
-	var statusInput struct {
+func (orderHandler *OrderHandler) UpdateStatus(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	orderIdentifier := chi.URLParam(httpRequest, "id")
+	
+	var request struct {
 		Status string `json:"status"`
 	}
-	if decodeError := json.NewDecoder(request.Body).Decode(&statusInput); decodeError != nil {
-		http.Error(responseWriter, "Invalid request body", http.StatusBadRequest)
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
-	// 1. Get the order to know which user to notify
-	orderInstance, fetchError := orderHandler.OrderStore.GetByID(orderIdentifier)
-	if fetchError != nil {
-		http.Error(responseWriter, "Order not found", http.StatusNotFound)
+	orderInstance, error := orderHandler.orderStore.GetByID(httpRequest.Context(), orderIdentifier)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
 
-	// 2. Update in DB
-	if updateError := orderHandler.OrderStore.UpdateStatus(orderIdentifier, statusInput.Status); updateError != nil {
-		http.Error(responseWriter, "Internal server error", http.StatusInternalServerError)
+	if error := orderHandler.updateAndNotifyStatus(httpRequest.Context(), orderIdentifier, request.Status, orderInstance.UserID); error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
-	// 3. Send real-time notification via WebSocket
-	orderHandler.NotificationHub.SendToUser(orderInstance.UserID, map[string]interface{}{
-		"type":     "ORDER_UPDATE",
-		"order_id": orderIdentifier,
-		"status":   statusInput.Status,
-		"message":  "¡Tu pedido ha cambiado de estado!",
-	})
+	response.SendJSON(responseWriter, http.StatusOK, map[string]string{"message": "Order status updated and notified"})
+}
 
-	responseWriter.WriteHeader(http.StatusOK)
-	json.NewEncoder(responseWriter).Encode(map[string]string{"message": "Order status updated and notified"})
+// --- Private ---
+
+func (orderHandler *OrderHandler) updateAndNotifyStatus(requestContext context.Context, orderID string, status string, userID int) error {
+	if error := orderHandler.orderStore.UpdateStatus(requestContext, orderID, status); error != nil {
+		return apperrors.ErrInternalServerError
+	}
+
+	if orderHandler.notificationHub != nil {
+		orderHandler.notificationHub.SendToUser(userID, map[string]interface{}{
+			"type":     "ORDER_UPDATE",
+			"order_id": orderID,
+			"status":   status,
+			"message":  "¡Tu pedido ha cambiado de estado!",
+		})
+	}
+	
+	return nil
 }

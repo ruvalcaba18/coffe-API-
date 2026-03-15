@@ -2,117 +2,152 @@ package handlers
 
 import (
 	"coffeebase-api/api/dto"
+	"coffeebase-api/api/response"
+	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/auth"
 	usermodel "coffeebase-api/internal/models/user"
 	"coffeebase-api/internal/notifications"
-	userstore "coffeebase-api/internal/store/user"
-	"encoding/json"
-	"log"
-	webServer "net/http"
-	stringManipulation "strings"
+	"context"
+	"net/http"
+	"strings"
 )
 
 type AuthHandler struct {
-	UserStore       *userstore.Store
-	NotificationHub *notifications.Hub
+	userStore       storeProvider
+	notificationHub *notifications.Hub
 }
 
-func (authHandler *AuthHandler) Register(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
-	var registrationRequest dto.RegisterRequest
-	decodingError := json.NewDecoder(httpRequest.Body).Decode(&registrationRequest)
-	if decodingError != nil {
-		webServer.Error(responseWriter, "Invalid request body", webServer.StatusBadRequest)
+type storeProvider interface {
+	Create(requestContext context.Context, user *usermodel.User) error
+	GetByEmail(requestContext context.Context, email string) (usermodel.User, error)
+}
+
+// --- Public ---
+
+func NewAuthHandler(userStore storeProvider, notificationHub *notifications.Hub) *AuthHandler {
+	return &AuthHandler{
+		userStore:       userStore,
+		notificationHub: notificationHub,
+	}
+}
+
+func (authHandler *AuthHandler) Register(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	var request dto.RegisterRequest
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
 		return
 	}
 
-	hashedPassword, _ := auth.HashPassword(registrationRequest.Password)
-	
-	userInstance := usermodel.User{
-		Username: registrationRequest.Username,
-		Email:    registrationRequest.Email,
+	userInstance, error := authHandler.buildUserFromRegistration(request)
+	if error != nil {
+		response.SendError(responseWriter, error)
+		return
+	}
+
+	if error := authHandler.userStore.Create(httpRequest.Context(), userInstance); error != nil {
+		response.SendError(responseWriter, error)
+		return
+	}
+
+	authHandler.finalizeRegistration(responseWriter, userInstance)
+}
+
+func (authHandler *AuthHandler) Login(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	var request dto.LoginRequest
+	if error := response.DecodeJSON(httpRequest, &request); error != nil {
+		response.SendError(responseWriter, error)
+		return
+	}
+
+	userInstance, error := authHandler.authenticateUser(httpRequest, request)
+	if error != nil {
+		response.SendError(responseWriter, error)
+		return
+	}
+
+	token, error := authHandler.generateUserSession(httpRequest, userInstance)
+	if error != nil {
+		response.SendError(responseWriter, error)
+		return
+	}
+
+	authHandler.setAuthCookie(responseWriter, token)
+	response.SendJSON(responseWriter, http.StatusOK, map[string]string{"token": token})
+}
+
+// --- Private ---
+
+func (authHandler *AuthHandler) buildUserFromRegistration(request dto.RegisterRequest) (*usermodel.User, error) {
+	hashedPassword, error := auth.HashPassword(request.Password)
+	if error != nil {
+		return nil, apperrors.ErrInternalServerError
+	}
+
+	language := strings.ToLower(request.Language)
+	if language == "" {
+		language = "es"
+	}
+
+	if !isValidLanguage(language) {
+		return nil, apperrors.ErrInvalidRequest
+	}
+
+	return &usermodel.User{
+		Username: request.Username,
+		Email:    request.Email,
 		Password: hashedPassword,
-		Language: registrationRequest.Language,
-	}
+		Language: language,
+	}, nil
+}
 
-	if userInstance.Language == "" {
-		userInstance.Language = "es"
-	}
-
-	validLanguages := map[string]bool{"es": true, "en": true, "fr": true, "de": true, "gsw": true}
-	if !validLanguages[userInstance.Language] {
-		webServer.Error(responseWriter, "Invalid language", webServer.StatusBadRequest)
-		return
-	}
-
-	creationError := authHandler.UserStore.Create(&userInstance)
-	if creationError != nil {
-		webServer.Error(responseWriter, "Error creating user", webServer.StatusInternalServerError)
-		return
-	}
-
-	responseWriter.Header().Set("Content-Type", "application/json")
-	responseWriter.WriteHeader(webServer.StatusCreated)
-	userResponse := dto.MapUserToResponse(userInstance)
+func (authHandler *AuthHandler) finalizeRegistration(responseWriter http.ResponseWriter, user *usermodel.User) {
+	userResponse := dto.MapUserToResponse(*user)
 	
-	if authHandler.NotificationHub != nil {
-		authHandler.NotificationHub.Broadcast(map[string]interface{}{
+	if authHandler.notificationHub != nil {
+		authHandler.notificationHub.Broadcast(map[string]interface{}{
 			"type": "new_user",
 			"user": userResponse,
 		})
 	}
 
-	json.NewEncoder(responseWriter).Encode(userResponse)
+	response.SendJSON(responseWriter, http.StatusCreated, userResponse)
 }
 
-func (authHandler *AuthHandler) Login(responseWriter webServer.ResponseWriter, httpRequest *webServer.Request) {
-	var loginRequest dto.LoginRequest
-	decodingError := json.NewDecoder(httpRequest.Body).Decode(&loginRequest)
-	if decodingError != nil {
-		webServer.Error(responseWriter, "Invalid request body", webServer.StatusBadRequest)
-		return
+func (authHandler *AuthHandler) authenticateUser(httpRequest *http.Request, request dto.LoginRequest) (usermodel.User, error) {
+	email := strings.ToLower(strings.TrimSpace(request.Email))
+	userInstance, error := authHandler.userStore.GetByEmail(httpRequest.Context(), email)
+	if error != nil {
+		return usermodel.User{}, apperrors.ErrUnauthorized
 	}
 
-	loginRequest.Email = stringManipulation.ToLower(stringManipulation.TrimSpace(loginRequest.Email))
-	userInstance, fetchError := authHandler.UserStore.GetByEmail(loginRequest.Email)
-	passwordMatch := auth.CheckPasswordHash(loginRequest.Password, userInstance.Password)
-
-	if fetchError != nil {
-		log.Printf("Login failed: User not found with email %s", loginRequest.Email)
-		webServer.Error(responseWriter, "Invalid credentials", webServer.StatusUnauthorized)
-		return
+	if !auth.CheckPasswordHash(request.Password, userInstance.Password) {
+		return usermodel.User{}, apperrors.ErrUnauthorized
 	}
 
-	if !passwordMatch {
-		log.Printf("Login failed: Password mismatch for email %s", loginRequest.Email)
-		webServer.Error(responseWriter, "Invalid credentials", webServer.StatusUnauthorized)
-		return
+	return userInstance, nil
+}
+
+func (authHandler *AuthHandler) generateUserSession(httpRequest *http.Request, user usermodel.User) (string, error) {
+	token, error := auth.GenerateToken(user.ID, string(user.Role), httpRequest.RemoteAddr, httpRequest.Header.Get("User-Agent"))
+	if error != nil {
+		return "", apperrors.ErrInternalServerError
 	}
+	return token, nil
+}
 
-	requesterIP := httpRequest.RemoteAddr
-	requesterUserAgent := httpRequest.Header.Get("User-Agent")
-
-	authenticationToken, tokenGenerationError := auth.GenerateToken(
-		userInstance.ID, 
-		userInstance.Role, 
-		requesterIP, 
-		requesterUserAgent,
-	)
-	if tokenGenerationError != nil {
-		webServer.Error(responseWriter, "Error generating secure session", webServer.StatusInternalServerError)
-		return
-	}
-
-	authCookie := &webServer.Cookie{
+func (authHandler *AuthHandler) setAuthCookie(responseWriter http.ResponseWriter, token string) {
+	http.SetCookie(responseWriter, &http.Cookie{
 		Name:     "auth-token",
-		Value:    authenticationToken,
+		Value:    token,
 		Path:     "/",
-		MaxAge:   7200, 
+		MaxAge:   7200,
 		HttpOnly: true,
-		Secure:   false, 
-		SameSite: webServer.SameSiteLaxMode,
-	}
-	webServer.SetCookie(responseWriter, authCookie)
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
 
-	responseWriter.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(responseWriter).Encode(map[string]string{"token": authenticationToken})
+func isValidLanguage(lang string) bool {
+	validLanguages := map[string]bool{"es": true, "en": true, "fr": true, "de": true, "gsw": true}
+	return validLanguages[lang]
 }

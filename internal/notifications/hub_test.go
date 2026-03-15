@@ -16,17 +16,16 @@ func TestHub_AddAndRemoveClient(t *testing.T) {
 	
 	hub.AddClient(client1)
 	
-	hub.mu.RLock()
+	hub.mutex.RLock()
 	assert.Len(t, hub.connections[1], 1)
-	hub.mu.RUnlock()
+	hub.mutex.RUnlock()
 	
 	hub.RemoveClient(client1)
 	
-	hub.mu.RLock()
+	hub.mutex.RLock()
 	assert.Nil(t, hub.connections[1])
-	hub.mu.RUnlock()
+	hub.mutex.RUnlock()
 	
-	// Channel should be closed
 	_, ok := <-client1.Send
 	assert.False(t, ok)
 }
