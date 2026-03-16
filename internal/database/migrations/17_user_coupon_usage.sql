@@ -1,4 +1,4 @@
--- Track which users have used each coupon (prevents reuse per user)
+
 CREATE TABLE IF NOT EXISTS user_coupon_usage (
     id         SERIAL PRIMARY KEY,
     user_id    INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

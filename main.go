@@ -6,6 +6,7 @@ import (
 	"coffeebase-api/api/routes"
 	"coffeebase-api/internal/cache"
 	"coffeebase-api/internal/database"
+	"coffeebase-api/internal/middleware"
 	"coffeebase-api/internal/notifications"
 	orderservice "coffeebase-api/internal/service/order"
 	billingstore "coffeebase-api/internal/store/billing"
@@ -33,6 +34,9 @@ func main() {
 	if error := godotenv.Overload(); error != nil {
 		log.Println("Info: No .env file found, using system environment variables")
 	}
+
+	// OWASP A02 — Validate JWT secret before starting
+	middleware.ValidateJWTSecret()
 
 	databaseConnection := initializeDatabaseAndRunMigrations()
 	defer databaseConnection.Close()

@@ -1,4 +1,4 @@
--- Reviews table
+
 CREATE TABLE IF NOT EXISTS reviews (
     id SERIAL PRIMARY KEY,
     product_id INT REFERENCES products(id) ON DELETE CASCADE,
@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Favorites table (composite primary key to avoid duplicates)
+
 CREATE TABLE IF NOT EXISTS favorites (
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
     product_id INT REFERENCES products(id) ON DELETE CASCADE,

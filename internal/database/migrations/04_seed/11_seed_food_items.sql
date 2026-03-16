@@ -1,4 +1,4 @@
--- Seed more food items
+
 INSERT INTO products (name, description, price, category) VALUES
 ('Sandwich de Pavo', 'Pechuga de pavo, queso suizo y mayonesa chipotle', 120.00, 'Food'),
 ('Ensalada César', 'Lechuga romana, croutones y aderezo césar clásico', 95.00, 'Food'),

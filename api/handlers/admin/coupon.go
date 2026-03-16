@@ -6,6 +6,7 @@ import (
 	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/models/coupon"
 	couponstore "coffeebase-api/internal/store/coupon"
+	"coffeebase-api/internal/validation"
 	"net/http"
 	"strconv"
 
@@ -31,8 +32,15 @@ func (couponHandler *CouponHandler) Create(responseWriter http.ResponseWriter, h
 		return
 	}
 
+	// OWASP A03 - Validate coupon code format
+	cleanCode, error := validation.CouponCode(request.Code)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInvalidRequest)
+		return
+	}
+
 	couponInstance := &coupon.Coupon{
-		Code:              request.Code,
+		Code:              cleanCode,
 		DiscountType:      request.DiscountType,
 		DiscountValue:     request.DiscountValue,
 		MinPurchaseAmount: request.MinPurchaseAmount,

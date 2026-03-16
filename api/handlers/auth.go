@@ -7,8 +7,10 @@ import (
 	"coffeebase-api/internal/auth"
 	usermodel "coffeebase-api/internal/models/user"
 	"coffeebase-api/internal/notifications"
+	"coffeebase-api/internal/validation"
 	"context"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -78,12 +80,27 @@ func (authHandler *AuthHandler) Login(responseWriter http.ResponseWriter, httpRe
 // --- Private ---
 
 func (authHandler *AuthHandler) buildUserFromRegistration(request dto.RegisterRequest) (*usermodel.User, error) {
+	// OWASP A03 - Validate and sanitize all inputs
+	cleanEmail, error := validation.Email(request.Email)
+	if error != nil {
+		return nil, apperrors.ErrInvalidRequest
+	}
+
+	cleanUsername, error := validation.Username(request.Username)
+	if error != nil {
+		return nil, apperrors.ErrInvalidRequest
+	}
+
+	if error := validation.Password(request.Password); error != nil {
+		return nil, apperrors.ErrInvalidRequest
+	}
+
 	hashedPassword, error := auth.HashPassword(request.Password)
 	if error != nil {
 		return nil, apperrors.ErrInternalServerError
 	}
 
-	language := strings.ToLower(request.Language)
+	language := strings.ToLower(strings.TrimSpace(request.Language))
 	if language == "" {
 		language = "es"
 	}
@@ -93,8 +110,8 @@ func (authHandler *AuthHandler) buildUserFromRegistration(request dto.RegisterRe
 	}
 
 	return &usermodel.User{
-		Username: request.Username,
-		Email:    request.Email,
+		Username: cleanUsername,
+		Email:    cleanEmail,
 		Password: hashedPassword,
 		Language: language,
 	}, nil
@@ -136,14 +153,16 @@ func (authHandler *AuthHandler) generateUserSession(httpRequest *http.Request, u
 }
 
 func (authHandler *AuthHandler) setAuthCookie(responseWriter http.ResponseWriter, token string) {
+
+	secureCookie := os.Getenv("ENV") == "production"
 	http.SetCookie(responseWriter, &http.Cookie{
 		Name:     "auth-token",
 		Value:    token,
 		Path:     "/",
 		MaxAge:   7200,
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
+		HttpOnly: true,     
+		Secure:   secureCookie, 
+		SameSite: http.SameSiteStrictMode, 
 	})
 }
 

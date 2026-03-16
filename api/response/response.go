@@ -21,21 +21,27 @@ func SendJSON(responseWriter http.ResponseWriter, statusCode int, payload interf
 
 func SendError(responseWriter http.ResponseWriter, providedError error) {
 	statusCode := http.StatusInternalServerError
-	message := providedError.Error()
+	message := "an unexpected error occurred"
 
 	switch providedError {
-	case apperrors.ErrInvalidRequest, apperrors.ErrInvalidCoupon, apperrors.ErrCouponNotValidForPurchase, apperrors.ErrInvalidID:
+	case apperrors.ErrInvalidRequest, apperrors.ErrInvalidCoupon, apperrors.ErrCouponNotValidForPurchase, apperrors.ErrInvalidID, apperrors.ErrCartEmpty:
 		statusCode = http.StatusBadRequest
+		message = providedError.Error()
 	case apperrors.ErrUnauthorized:
 		statusCode = http.StatusUnauthorized
+		message = providedError.Error()
 	case apperrors.ErrForbidden:
 		statusCode = http.StatusForbidden
+		message = providedError.Error()
 	case apperrors.ErrUserNotFound, apperrors.ErrProductNotFound:
 		statusCode = http.StatusNotFound
+		message = providedError.Error()
 	case apperrors.ErrRequestInProgress:
 		statusCode = http.StatusConflict
-	case apperrors.ErrCartEmpty:
-		statusCode = http.StatusBadRequest
+		message = providedError.Error()
+	case apperrors.ErrDuplicateCard, apperrors.ErrCouponAlreadyUsedByUser:
+		statusCode = http.StatusConflict
+		message = providedError.Error()
 	}
 
 	SendJSON(responseWriter, statusCode, ErrorResponse{
