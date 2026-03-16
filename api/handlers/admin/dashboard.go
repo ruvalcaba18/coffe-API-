@@ -4,22 +4,25 @@ import (
 	"coffeebase-api/api/dto"
 	"coffeebase-api/api/response"
 	"coffeebase-api/internal/apperrors"
+	couponstore "coffeebase-api/internal/store/coupon"
 	"coffeebase-api/internal/store/order"
 	userstore "coffeebase-api/internal/store/user"
 	"net/http"
 )
 
 type DashboardHandler struct {
-	orderStore order.Store
-	userStore  userstore.Store
+	orderStore  order.Store
+	userStore   userstore.Store
+	couponStore couponstore.Store
 }
 
 // --- Public ---
 
-func NewDashboardHandler(orderStore order.Store, userStore userstore.Store) *DashboardHandler {
+func NewDashboardHandler(orderStore order.Store, userStore userstore.Store, couponStore couponstore.Store) *DashboardHandler {
 	return &DashboardHandler{
-		orderStore: orderStore,
-		userStore:  userStore,
+		orderStore:  orderStore,
+		userStore:   userStore,
+		couponStore: couponStore,
 	}
 }
 
@@ -35,6 +38,17 @@ func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseW
 		totalUserCount = 0
 	}
 
+	couponList, error := dashboardHandler.couponStore.GetAll(httpRequest.Context())
+	if error != nil {
+		couponList = nil
+	}
+
+	couponDTOs := dto.MapCouponsToResponse(couponList)
+	totalCouponsUsed := 0
+	for _, c := range couponList {
+		totalCouponsUsed += c.UsedCount
+	}
+
 	dashboardResponse := dto.DashboardStatsDTO{
 		Orders: dto.DashboardOrderStatsDTO{
 			TotalOrders:       orderStatistics.TotalOrders,
@@ -46,6 +60,10 @@ func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseW
 		},
 		Users: map[string]interface{}{
 			"total_count": totalUserCount,
+		},
+		Coupons: map[string]interface{}{
+			"list":       couponDTOs,
+			"total_used": totalCouponsUsed,
 		},
 	}
 

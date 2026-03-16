@@ -13,6 +13,8 @@ type Store interface {
 	GetAll(requestContext context.Context) ([]couponmodel.Coupon, error)
 	ToggleStatus(requestContext context.Context, id int, isActive bool) error
 	Delete(requestContext context.Context, id int) error
+	HasUserUsedCoupon(requestContext context.Context, userID int, code string) (bool, error)
+	RecordUserCouponUsage(requestContext context.Context, transaction *sql.Tx, userID int, code string, orderID string) error
 }
 
 type postgresStore struct {

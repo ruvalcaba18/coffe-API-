@@ -13,8 +13,11 @@ type CartUpdateRequest struct {
 
 // CartItemDTO represents a cart item in the API
 type CartItemDTO struct {
-	ProductID int `json:"product_id"`
-	Quantity  int `json:"quantity"`
+	ProductID   int     `json:"product_id"`
+	Quantity    int     `json:"quantity"`
+	ProductName string  `json:"product_name"`
+	Price       float64 `json:"price"`
+	ImageURL    string  `json:"image_url"`
 }
 
 // CartResponse represents the cart data returned to the client
@@ -29,8 +32,11 @@ func MapCartToResponse(c cartmodel.Cart) CartResponse {
 	items := make([]CartItemDTO, len(c.Items))
 	for i, item := range c.Items {
 		items[i] = CartItemDTO{
-			ProductID: item.ProductID,
-			Quantity:  item.Quantity,
+			ProductID:   item.ProductID,
+			Quantity:    item.Quantity,
+			ProductName: item.ProductName,
+			Price:       item.Price,
+			ImageURL:    item.ImageURL,
 		}
 	}
 

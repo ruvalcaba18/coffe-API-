@@ -83,7 +83,7 @@ func (orderStore *postgresStore) GetPickupsByUserID(requestContext context.Conte
 
 func (orderStore *postgresStore) GetAll(requestContext context.Context) ([]ordermodel.Order, error) {
 	query := `SELECT id, user_id, total, status, coupon_code, discount_amount, is_pickup, pickup_time, pickup_location, items_count, created_at FROM orders ORDER BY created_at DESC`
-	return orderStore.processOrderRows(requestContext, query, false)
+	return orderStore.processOrderRows(requestContext, query, true)
 }
 
 func (orderStore *postgresStore) UpdateStatus(requestContext context.Context, id string, status string) error {
@@ -168,13 +168,17 @@ func (orderStore *postgresStore) scanOrder(rows *sql.Rows) (ordermodel.Order, er
 }
 
 func (orderStore *postgresStore) fillOrderItems(requestContext context.Context, order *ordermodel.Order) {
-	query := `SELECT product_id, quantity FROM order_items WHERE order_id = $1`
+	query := `
+		SELECT oi.product_id, oi.quantity, p.name 
+		FROM order_items oi 
+		JOIN products p ON oi.product_id = p.id 
+		WHERE oi.order_id = $1`
 	rows, error := orderStore.databaseConnection.QueryContext(requestContext, query, order.ID)
 	if error == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var item ordermodel.OrderItem
-			rows.Scan(&item.ProductID, &item.Quantity)
+			rows.Scan(&item.ProductID, &item.Quantity, &item.ProductName)
 			order.Items = append(order.Items, item)
 		}
 	}

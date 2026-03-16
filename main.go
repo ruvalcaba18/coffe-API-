@@ -106,7 +106,7 @@ func buildApplicationRouter(databaseConnection *sql.DB, cacheService cache.Servi
 	adminOrderHandler := adminhandlers.NewOrderHandler(orderStoreInstance, notificationHub)
 	adminUserHandler := adminhandlers.NewUserHandler(userStoreInstance)
 	adminCouponHandler := adminhandlers.NewCouponHandler(couponStoreInstance)
-	adminDashboardHandler := adminhandlers.NewDashboardHandler(orderStoreInstance, userStoreInstance)
+	adminDashboardHandler := adminhandlers.NewDashboardHandler(orderStoreInstance, userStoreInstance, couponStoreInstance)
 
 	return routes.NewRouter(
 		authHandler,

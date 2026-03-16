@@ -54,6 +54,16 @@ func (billingHandler *BillingHandler) AddPaymentMethod(responseWriter http.Respo
 		return
 	}
 
+	exists, error := billingHandler.billingStore.ExistsPaymentMethod(httpRequest.Context(), userID, request.Last4, request.Brand)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
+		return
+	}
+	if exists {
+		response.SendError(responseWriter, apperrors.ErrDuplicateCard)
+		return
+	}
+
 	paymentMethodInstance := &billingmodel.PaymentMethod{
 		UserID: userID,
 		Last4:  request.Last4,

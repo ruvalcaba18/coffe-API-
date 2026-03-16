@@ -16,6 +16,7 @@ type DashboardOrderStatsDTO struct {
 }
 
 type DashboardStatsDTO struct {
-	Orders DashboardOrderStatsDTO `json:"orders"`
-	Users  map[string]interface{} `json:"users"`
+	Orders  DashboardOrderStatsDTO `json:"orders"`
+	Users   map[string]interface{} `json:"users"`
+	Coupons map[string]interface{} `json:"coupons"`
 }

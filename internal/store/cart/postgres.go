@@ -40,13 +40,13 @@ func (store *postgresStore) UpdateItem(requestContext context.Context, userID, p
 		return error
 	}
 
-	store.cacheService.Del(requestContext, fmt.Sprintf("cart:%d", userID))
+	store.cacheService.Del(requestContext, fmt.Sprintf("cart:v2:%d", userID))
 
 	return nil
 }
 
 func (store *postgresStore) GetCart(requestContext context.Context, userID int) (*cartmodel.Cart, error) {
-	key := fmt.Sprintf("cart:%d", userID)
+	key := fmt.Sprintf("cart:v2:%d", userID)
 
 	if cached, error := store.cacheService.Get(requestContext, key); error == nil {
 		var cart cartmodel.Cart
@@ -55,7 +55,13 @@ func (store *postgresStore) GetCart(requestContext context.Context, userID int) 
 		}
 	}
 
-	rows, error := store.databaseConnection.QueryContext(requestContext, `SELECT product_id, quantity FROM cart_items WHERE user_id = $1`, userID)
+	query := `
+		SELECT ci.product_id, ci.quantity, p.name, p.price, p.image_url 
+		FROM cart_items ci
+		JOIN products p ON ci.product_id = p.id
+		WHERE ci.user_id = $1
+	`
+	rows, error := store.databaseConnection.QueryContext(requestContext, query, userID)
 	if error != nil {
 		return nil, error
 	}
@@ -64,7 +70,7 @@ func (store *postgresStore) GetCart(requestContext context.Context, userID int) 
 	cart := &cartmodel.Cart{UserID: userID, Items: []cartmodel.Item{}}
 	for rows.Next() {
 		var item cartmodel.Item
-		if error := rows.Scan(&item.ProductID, &item.Quantity); error != nil {
+		if error := rows.Scan(&item.ProductID, &item.Quantity, &item.ProductName, &item.Price, &item.ImageURL); error != nil {
 			return nil, error
 		}
 		cart.Items = append(cart.Items, item)
@@ -80,7 +86,7 @@ func (store *postgresStore) GetCart(requestContext context.Context, userID int) 
 func (store *postgresStore) ClearCart(requestContext context.Context, transaction *sql.Tx, userID int) error {
 	_, error := transaction.ExecContext(requestContext, `DELETE FROM cart_items WHERE user_id = $1`, userID)
 	if error == nil {
-		store.cacheService.Del(requestContext, fmt.Sprintf("cart:%d", userID))
+		store.cacheService.Del(requestContext, fmt.Sprintf("cart:v2:%d", userID))
 	}
 	return error
 }

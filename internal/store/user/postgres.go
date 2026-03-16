@@ -93,6 +93,12 @@ func (store *postgresStore) Update(context context.Context, user *usermodel.User
 	return error
 }
 
+func (store *postgresStore) Delete(context context.Context, id int) error {
+	query := `DELETE FROM users WHERE id = $1`
+	_, error := store.databaseConnection.ExecContext(context, query, id)
+	return error
+}
+
 // --- Private ---
 
 func (store *postgresStore) getBaseUserQuery() string {

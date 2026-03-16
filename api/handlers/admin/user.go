@@ -57,3 +57,18 @@ func (userHandler *UserHandler) UpdateRole(responseWriter http.ResponseWriter, h
 
 	responseWriter.WriteHeader(http.StatusNoContent)
 }
+func (userHandler *UserHandler) Delete(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	userIDString := chi.URLParam(httpRequest, "id")
+	userID, conversionError := strconv.Atoi(userIDString)
+	if conversionError != nil {
+		response.SendError(responseWriter, apperrors.ErrInvalidID)
+		return
+	}
+
+	if error := userHandler.userStore.Delete(httpRequest.Context(), userID); error != nil {
+		response.SendError(responseWriter, apperrors.ErrInternalServerError)
+		return
+	}
+
+	responseWriter.WriteHeader(http.StatusNoContent)
+}

@@ -59,3 +59,20 @@ func (store *postgresStore) Delete(requestContext context.Context, id int) error
 	_, error := store.databaseConnection.ExecContext(requestContext, `DELETE FROM coupons WHERE id = $1`, id)
 	return error
 }
+
+func (store *postgresStore) HasUserUsedCoupon(requestContext context.Context, userID int, code string) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM user_coupon_usage WHERE user_id = $1 AND coupon_code = $2)`
+	error := store.databaseConnection.QueryRowContext(requestContext, query, userID, code).Scan(&exists)
+	return exists, error
+}
+
+func (store *postgresStore) RecordUserCouponUsage(requestContext context.Context, transaction *sql.Tx, userID int, code string, orderID string) error {
+	query := `INSERT INTO user_coupon_usage (user_id, coupon_code, order_id) VALUES ($1, $2, $3::uuid)`
+	if transaction != nil {
+		_, error := transaction.ExecContext(requestContext, query, userID, code, orderID)
+		return error
+	}
+	_, error := store.databaseConnection.ExecContext(requestContext, query, userID, code, orderID)
+	return error
+}

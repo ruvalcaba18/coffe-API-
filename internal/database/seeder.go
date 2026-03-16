@@ -107,6 +107,8 @@ func SeedDatabase(database *sql.DB) error {
 // --- Private ---
 
 func seedTesterDetails(database *sql.DB, userID int) {
+	executeStatement(database, "UPDATE users SET total_orders_completed = 14, total_spent = 250.50 WHERE id = $1", userID)
+
 	rows, error := database.Query("SELECT id FROM products LIMIT 5")
 	if error != nil {
 		return

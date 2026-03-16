@@ -156,6 +156,7 @@ func registerAdminRoutes(
 
 	router.Get("/admin/users", userHandler.GetAll)
 	router.Patch("/admin/users/role/{id}", userHandler.UpdateRole)
+	router.With(custom_middleware.SuperAdminMiddleware).Delete("/admin/users/{id}", userHandler.Delete)
 
 	router.Post("/admin/coupons", couponHandler.Create)
 	router.Get("/admin/coupons", couponHandler.GetAll)

@@ -112,13 +112,19 @@ func (service *Service) executeCheckoutLogic(
 	}
 
 	if couponCode != "" {
-		if error := service.applyCouponToOrder(requestContext, transaction, orderInstance, couponCode); error != nil {
+		if error := service.applyCouponToOrder(requestContext, transaction, orderInstance, couponCode, userID); error != nil {
 			return nil, error
 		}
 	}
 
 	if error := service.orderStore.CreateWithTx(requestContext, transaction, orderInstance); error != nil {
 		return nil, error
+	}
+
+	if couponCode != "" && orderInstance.ID != "" {
+		if error := service.couponStore.RecordUserCouponUsage(requestContext, transaction, userID, couponCode, orderInstance.ID); error != nil {
+			return nil, error
+		}
 	}
 
 	if error := service.cartStore.ClearCart(requestContext, transaction, userID); error != nil {
@@ -153,7 +159,7 @@ func (service *Service) prepareOrderItemsFromCart(requestContext context.Context
 	return orderItems, totalAmount, nil
 }
 
-func (service *Service) applyCouponToOrder(requestContext context.Context, transaction *sql.Tx, order *ordermodel.Order, code string) error {
+func (service *Service) applyCouponToOrder(requestContext context.Context, transaction *sql.Tx, order *ordermodel.Order, code string, userID int) error {
 	couponInstance, error := service.couponStore.GetByCode(requestContext, code)
 	if error != nil {
 		return apperrors.ErrInvalidCoupon
@@ -161,6 +167,14 @@ func (service *Service) applyCouponToOrder(requestContext context.Context, trans
 
 	if !couponInstance.IsValid(order.Total) {
 		return apperrors.ErrCouponNotValidForPurchase
+	}
+
+	alreadyUsed, error := service.couponStore.HasUserUsedCoupon(requestContext, userID, code)
+	if error != nil {
+		return apperrors.ErrInternalServerError
+	}
+	if alreadyUsed {
+		return apperrors.ErrCouponAlreadyUsedByUser
 	}
 
 	discountAmount := couponInstance.CalculateDiscount(order.Total)

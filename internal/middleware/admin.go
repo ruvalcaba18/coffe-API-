@@ -22,6 +22,20 @@ func AdminMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func SuperAdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+		roleValue, ok := httpRequest.Context().Value(UserRoleKey).(string)
+		role := user.UserRole(roleValue)
+		
+		if !ok || role != user.RoleSuperAdmin {
+			response.Forbidden(responseWriter, "Super Admin access required")
+			return
+		}
+		
+		next.ServeHTTP(responseWriter, httpRequest)
+	})
+}
+
 // --- Private ---
 
 func hasStaffAccess(role user.UserRole) bool {

@@ -16,6 +16,7 @@ type Store interface {
 	GetAll(requestContext context.Context) ([]usermodel.User, error)
 	UpdateRole(requestContext context.Context, id int, role usermodel.UserRole) error
 	Update(requestContext context.Context, userInstance *usermodel.User) error
+	Delete(requestContext context.Context, id int) error
 }
 
 type postgresStore struct {
