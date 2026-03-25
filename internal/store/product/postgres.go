@@ -55,13 +55,16 @@ func (store *postgresStore) GetAll(requestContext context.Context, filter produc
 	}
 	defer rows.Close()
 
-	var products []productmodel.Product
+	var products []productmodel.Product = make([]productmodel.Product, 0, 32)
 	for rows.Next() {
 		var productInstance productmodel.Product
 		if error := rows.Scan(&productInstance.ID, &productInstance.Name, &productInstance.Description, &productInstance.Price, &productInstance.Category, &productInstance.AverageRating, &productInstance.ReviewCount); error != nil {
 			return nil, error
 		}
 		products = append(products, productInstance)
+	}
+	if rowsError := rows.Err(); rowsError != nil {
+		return nil, rowsError
 	}
 
 	if data, error := json.Marshal(products); error == nil {
@@ -158,13 +161,16 @@ func (store *postgresStore) GetCategories(requestContext context.Context) ([]str
 	}
 	defer rows.Close()
 
-	var categories []string
+	var categories []string = make([]string, 0, 16)
 	for rows.Next() {
 		var name string
 		if error := rows.Scan(&name); error != nil {
 			return nil, error
 		}
 		categories = append(categories, name)
+	}
+	if rowsError := rows.Err(); rowsError != nil {
+		return nil, rowsError
 	}
 
 	return categories, nil

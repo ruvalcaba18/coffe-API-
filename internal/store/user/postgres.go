@@ -62,7 +62,7 @@ func (store *postgresStore) GetAll(context context.Context) ([]usermodel.User, e
 	}
 	defer rows.Close()
 
-	var users []usermodel.User
+	var users []usermodel.User = make([]usermodel.User, 0, 64)
 	for rows.Next() {
 		var user usermodel.User
 		var birthday sql.NullTime
@@ -77,6 +77,9 @@ func (store *postgresStore) GetAll(context context.Context) ([]usermodel.User, e
 			user.Birthday = birthday.Time
 		}
 		users = append(users, user)
+	}
+	if rowsError := rows.Err(); rowsError != nil {
+		return nil, rowsError
 	}
 	return users, nil
 }

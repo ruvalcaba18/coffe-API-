@@ -32,27 +32,27 @@ type CouponResponse struct {
 	CreatedAt         time.Time `json:"created_at"`
 }
 
-func MapCouponToResponse(c couponmodel.Coupon) CouponResponse {
+func MapCouponToResponse(couponInstance couponmodel.Coupon) CouponResponse {
 	return CouponResponse{
-		ID:                c.ID,
-		Code:              c.Code,
-		DiscountType:      c.DiscountType,
-		DiscountValue:     c.DiscountValue,
-		MinPurchaseAmount: c.MinPurchaseAmount,
-		MaxDiscountAmount: c.MaxDiscountAmount,
-		StartDate:         c.StartDate,
-		EndDate:           c.EndDate,
-		UsageLimit:        c.UsageLimit,
-		UsedCount:         c.UsedCount,
-		IsActive:          c.IsActive,
-		CreatedAt:         c.CreatedAt,
+		ID:                couponInstance.ID,
+		Code:              couponInstance.Code,
+		DiscountType:      couponInstance.DiscountType,
+		DiscountValue:     couponInstance.DiscountValue,
+		MinPurchaseAmount: couponInstance.MinPurchaseAmount,
+		MaxDiscountAmount: couponInstance.MaxDiscountAmount,
+		StartDate:         couponInstance.StartDate,
+		EndDate:           couponInstance.EndDate,
+		UsageLimit:        couponInstance.UsageLimit,
+		UsedCount:         couponInstance.UsedCount,
+		IsActive:          couponInstance.IsActive,
+		CreatedAt:         couponInstance.CreatedAt,
 	}
 }
 
 func MapCouponsToResponse(coupons []couponmodel.Coupon) []CouponResponse {
 	dtos := make([]CouponResponse, len(coupons))
-	for i, c := range coupons {
-		dtos[i] = MapCouponToResponse(c)
+	for index, couponInstance := range coupons {
+		dtos[index] = MapCouponToResponse(couponInstance)
 	}
 	return dtos
 }

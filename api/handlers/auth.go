@@ -15,18 +15,18 @@ import (
 )
 
 type AuthHandler struct {
-	userStore       storeProvider
+	userStore       UserAuthStore
 	notificationHub *notifications.Hub
 }
 
-type storeProvider interface {
+type UserAuthStore interface {
 	Create(requestContext context.Context, user *usermodel.User) error
 	GetByEmail(requestContext context.Context, email string) (usermodel.User, error)
 }
 
 // --- Public ---
 
-func NewAuthHandler(userStore storeProvider, notificationHub *notifications.Hub) *AuthHandler {
+func NewAuthHandler(userStore UserAuthStore, notificationHub *notifications.Hub) *AuthHandler {
 	return &AuthHandler{
 		userStore:       userStore,
 		notificationHub: notificationHub,

@@ -19,32 +19,32 @@ type Coupon struct {
 	CreatedAt         time.Time `json:"created_at"`
 }
 
-func (c *Coupon) IsValid(total float64) bool {
+func (coupon *Coupon) IsValid(total float64) bool {
 	now := time.Now()
-	if !c.IsActive {
+	if !coupon.IsActive {
 		return false
 	}
-	if now.Before(c.StartDate) || now.After(c.EndDate) {
+	if now.Before(coupon.StartDate) || now.After(coupon.EndDate) {
 		return false
 	}
-	if c.UsageLimit > 0 && c.UsedCount >= c.UsageLimit {
+	if coupon.UsageLimit > 0 && coupon.UsedCount >= coupon.UsageLimit {
 		return false
 	}
-	if total < c.MinPurchaseAmount {
+	if total < coupon.MinPurchaseAmount {
 		return false
 	}
 	return true
 }
 
-func (c *Coupon) CalculateDiscount(total float64) float64 {
+func (coupon *Coupon) CalculateDiscount(total float64) float64 {
 	var discount float64
-	if c.DiscountType == "percentage" {
-		discount = total * (c.DiscountValue / 100)
-		if c.MaxDiscountAmount != nil && discount > *c.MaxDiscountAmount {
-			discount = *c.MaxDiscountAmount
+	if coupon.DiscountType == "percentage" {
+		discount = total * (coupon.DiscountValue / 100)
+		if coupon.MaxDiscountAmount != nil && discount > *coupon.MaxDiscountAmount {
+			discount = *coupon.MaxDiscountAmount
 		}
-	} else if c.DiscountType == "fixed" {
-		discount = c.DiscountValue
+	} else if coupon.DiscountType == "fixed" {
+		discount = coupon.DiscountValue
 	}
 	
 	if discount > total {

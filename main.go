@@ -17,10 +17,14 @@ import (
 	productstore "coffeebase-api/internal/store/product"
 	reviewstore "coffeebase-api/internal/store/review"
 	userstore "coffeebase-api/internal/store/user"
+	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
@@ -35,14 +39,17 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	if error := godotenv.Overload(); error != nil {
+	if loadError := godotenv.Overload(); loadError != nil {
 		slog.Warn("No .env file found, using system environment variables")
 	}
 
-	// OWASP A02 — Validate JWT secret before starting
 	middleware.ValidateJWTSecret()
 
-	databaseConnection := initializeDatabaseAndRunMigrations()
+	databaseConnection, initError := initializeDatabaseAndRunMigrations()
+	if initError != nil {
+		slog.Error("Database initialization failed", "error", initError)
+		os.Exit(1)
+	}
 	defer databaseConnection.Close()
 
 	redisClient := initializeRedisConnection()
@@ -54,31 +61,30 @@ func main() {
 
 	applicationRouter := buildApplicationRouter(databaseConnection, cacheService)
 
-	startApiServer(applicationRouter)
+	startServerWithGracefulShutdown(applicationRouter)
 }
 
 // --- Private ---
 
-func initializeDatabaseAndRunMigrations() *sql.DB {
+func initializeDatabaseAndRunMigrations() (*sql.DB, error) {
 	databaseConnection, databaseConnectionError := database.NewConnection()
 	if databaseConnectionError != nil {
-		slog.Error("Could not connect to database", "error", databaseConnectionError)
-		os.Exit(1)
+		return nil, databaseConnectionError
 	}
 
 	migrationError := database.RunMigrations(databaseConnection)
 	if migrationError != nil {
-		slog.Error("Failed to run migrations", "error", migrationError)
-		os.Exit(1)
+		databaseConnection.Close()
+		return nil, migrationError
 	}
 
 	seedingError := database.SeedDatabase(databaseConnection)
 	if seedingError != nil {
-		slog.Error("Failed to seed database", "error", seedingError)
-		os.Exit(1)
+		databaseConnection.Close()
+		return nil, seedingError
 	}
 
-	return databaseConnection
+	return databaseConnection, nil
 }
 
 func initializeRedisConnection() *redis.Client {
@@ -138,16 +144,45 @@ func buildApplicationRouter(databaseConnection *sql.DB, cacheService cache.Servi
 	)
 }
 
-func startApiServer(applicationRouter *chi.Mux) {
+func startServerWithGracefulShutdown(applicationRouter *chi.Mux) {
 	serverPort := os.Getenv("PORT")
 	if serverPort == "" {
 		serverPort = "8080"
 	}
 
+	httpServer := &http.Server{
+		Addr:         ":" + serverPort,
+		Handler:      applicationRouter,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	shutdownComplete := make(chan struct{})
+
+	go func() {
+		shutdownSignal := make(chan os.Signal, 1)
+		signal.Notify(shutdownSignal, syscall.SIGINT, syscall.SIGTERM)
+		receivedSignal := <-shutdownSignal
+
+		slog.Info("Shutdown signal received, draining connections...", "signal", receivedSignal.String())
+
+		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelShutdown()
+
+		if shutdownError := httpServer.Shutdown(shutdownContext); shutdownError != nil {
+			slog.Error("Server forced to shutdown", "error", shutdownError)
+		}
+
+		close(shutdownComplete)
+	}()
+
 	slog.Info("Coffee Shop API starting", "port", serverPort)
-	serverRunError := http.ListenAndServe(":"+serverPort, applicationRouter)
-	if serverRunError != nil {
-		slog.Error("Failed to start server", "error", serverRunError)
+	if serverError := httpServer.ListenAndServe(); serverError != nil && serverError != http.ErrServerClosed {
+		slog.Error("Failed to start server", "error", serverError)
 		os.Exit(1)
 	}
+
+	<-shutdownComplete
+	slog.Info("Server shutdown complete")
 }

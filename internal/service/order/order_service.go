@@ -15,7 +15,18 @@ import (
 	productstore "coffeebase-api/internal/store/product"
 )
 
-type Service struct {
+type CheckoutService interface {
+	Checkout(
+		requestContext context.Context,
+		userID int,
+		couponCode string,
+		isPickup bool,
+		pickupTime *time.Time,
+		pickupLocation string,
+	) (*ordermodel.Order, error)
+}
+
+type service struct {
 	databaseConnection *sql.DB
 	cacheService       cache.Service
 	orderStore         orderstore.Store
@@ -33,8 +44,8 @@ func NewService(
 	cartStore cartstore.Store,
 	productStore productstore.Store,
 	couponStore couponstore.Store,
-) *Service {
-	return &Service{
+) CheckoutService {
+	return &service{
 		databaseConnection: databaseConnection,
 		cacheService:       cacheService,
 		orderStore:         orderStore,
@@ -44,7 +55,7 @@ func NewService(
 	}
 }
 
-func (service *Service) Checkout(
+func (service *service) Checkout(
 	requestContext context.Context,
 	userID int,
 	couponCode string,
@@ -78,7 +89,7 @@ func (service *Service) Checkout(
 
 // --- Private ---
 
-func (service *Service) acquireCheckoutLock(requestContext context.Context, userID int) error {
+func (service *service) acquireCheckoutLock(requestContext context.Context, userID int) error {
 	lockKey := fmt.Sprintf("lock:checkout:%d", userID)
 	lockAcquired, error := service.cacheService.SetNX(requestContext, lockKey, "locked", 5*time.Second)
 	if error != nil || !lockAcquired {
@@ -87,7 +98,7 @@ func (service *Service) acquireCheckoutLock(requestContext context.Context, user
 	return nil
 }
 
-func (service *Service) executeCheckoutLogic(
+func (service *service) executeCheckoutLogic(
 	requestContext context.Context,
 	transaction *sql.Tx,
 	userID int,
@@ -134,7 +145,7 @@ func (service *Service) executeCheckoutLogic(
 	return orderInstance, nil
 }
 
-func (service *Service) prepareOrderItemsFromCart(requestContext context.Context, userID int) ([]ordermodel.OrderItem, float64, error) {
+func (service *service) prepareOrderItemsFromCart(requestContext context.Context, userID int) ([]ordermodel.OrderItem, float64, error) {
 	userCart, error := service.cartStore.GetCart(requestContext, userID)
 	if error != nil || len(userCart.Items) == 0 {
 		return nil, 0, apperrors.ErrCartEmpty
@@ -159,7 +170,7 @@ func (service *Service) prepareOrderItemsFromCart(requestContext context.Context
 	return orderItems, totalAmount, nil
 }
 
-func (service *Service) applyCouponToOrder(requestContext context.Context, transaction *sql.Tx, order *ordermodel.Order, code string, userID int) error {
+func (service *service) applyCouponToOrder(requestContext context.Context, transaction *sql.Tx, order *ordermodel.Order, code string, userID int) error {
 	couponInstance, error := service.couponStore.GetByCode(requestContext, code)
 	if error != nil {
 		return apperrors.ErrInvalidCoupon
@@ -185,7 +196,7 @@ func (service *Service) applyCouponToOrder(requestContext context.Context, trans
 	return service.couponStore.IncrementUsage(requestContext, transaction, code)
 }
 
-func (service *Service) invalidateUserCaches(requestContext context.Context, userID int) {
+func (service *service) invalidateUserCaches(requestContext context.Context, userID int) {
 	cacheKey := fmt.Sprintf("cart:%d", userID)
 	service.cacheService.Del(requestContext, cacheKey)
 }

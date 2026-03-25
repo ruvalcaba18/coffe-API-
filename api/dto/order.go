@@ -33,10 +33,10 @@ type OrderResponse struct {
 	CreatedAt      time.Time      `json:"created_at"`
 }
 
-func MapOrderToResponse(o ordermodel.Order) OrderResponse {
-	items := make([]OrderItemDTO, len(o.Items))
-	for i, item := range o.Items {
-		items[i] = OrderItemDTO{
+func MapOrderToResponse(orderInstance ordermodel.Order) OrderResponse {
+	items := make([]OrderItemDTO, len(orderInstance.Items))
+	for index, item := range orderInstance.Items {
+		items[index] = OrderItemDTO{
 			ProductID:   item.ProductID,
 			ProductName: item.ProductName,
 			Quantity:    item.Quantity,
@@ -44,25 +44,25 @@ func MapOrderToResponse(o ordermodel.Order) OrderResponse {
 	}
 
 	return OrderResponse{
-		ID:             o.ID,
-		UserID:         o.UserID,
+		ID:             orderInstance.ID,
+		UserID:         orderInstance.UserID,
 		Items:          items,
-		Total:          o.Total,
-		CouponCode:     o.CouponCode,
-		DiscountAmount: o.DiscountAmount,
-		Status:         o.Status,
-		IsPickup:       o.IsPickup,
-		PickupTime:     o.PickupTime,
-		PickupLocation: o.PickupLocation,
-		ItemsCount:     o.ItemsCount,
-		CreatedAt:      o.CreatedAt,
+		Total:          orderInstance.Total,
+		CouponCode:     orderInstance.CouponCode,
+		DiscountAmount: orderInstance.DiscountAmount,
+		Status:         orderInstance.Status,
+		IsPickup:       orderInstance.IsPickup,
+		PickupTime:     orderInstance.PickupTime,
+		PickupLocation: orderInstance.PickupLocation,
+		ItemsCount:     orderInstance.ItemsCount,
+		CreatedAt:      orderInstance.CreatedAt,
 	}
 }
 
 func MapOrdersToResponse(orders []ordermodel.Order) []OrderResponse {
 	dtos := make([]OrderResponse, len(orders))
-	for i, o := range orders {
-		dtos[i] = MapOrderToResponse(o)
+	for index, orderInstance := range orders {
+		dtos[index] = MapOrderToResponse(orderInstance)
 	}
 	return dtos
 }

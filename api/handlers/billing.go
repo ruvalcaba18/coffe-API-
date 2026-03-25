@@ -22,9 +22,8 @@ func NewBillingHandler(billingStore billing.Store) *BillingHandler {
 }
 
 func (billingHandler *BillingHandler) GetWallet(responseWriter http.ResponseWriter, httpRequest *http.Request) {
-	response.SendJSON(responseWriter, http.StatusOK, map[string]interface{}{
-		"balance": 150.50, 
-	})
+	// TODO: Implement real wallet balance fetch from billing store
+	response.SendJSON(responseWriter, http.StatusOK, billingmodel.Wallet{Balance: 0.00})
 }
 
 func (billingHandler *BillingHandler) GetPaymentMethods(responseWriter http.ResponseWriter, httpRequest *http.Request) {

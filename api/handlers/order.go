@@ -5,27 +5,21 @@ import (
 	"coffeebase-api/api/response"
 	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/middleware"
-	ordermodel "coffeebase-api/internal/models/order"
 	"coffeebase-api/internal/store/order"
 	"coffeebase-api/internal/store/product"
-	"context"
+	orderservice "coffeebase-api/internal/service/order"
 	"net/http"
-	"time"
 )
-
-type OrderCheckoutService interface {
-	Checkout(requestContext context.Context, userID int, couponCode string, isPickup bool, pickupTime *time.Time, pickupLocation string) (*ordermodel.Order, error)
-}
 
 type OrderHandler struct {
 	orderStore   order.Store
 	productStore product.Store
-	orderService OrderCheckoutService
+	orderService orderservice.CheckoutService
 }
 
 // --- Public ---
 
-func NewOrderHandler(orderStore order.Store, productStore product.Store, orderService OrderCheckoutService) *OrderHandler {
+func NewOrderHandler(orderStore order.Store, productStore product.Store, orderService orderservice.CheckoutService) *OrderHandler {
 	return &OrderHandler{
 		orderStore:   orderStore,
 		productStore: productStore,

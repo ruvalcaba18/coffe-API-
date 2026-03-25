@@ -21,22 +21,22 @@ type ProductResponse struct {
 	ReviewCount   int     `json:"review_count"`
 }
 
-func MapProductToResponse(p productmodel.Product) ProductResponse {
+func MapProductToResponse(productInstance productmodel.Product) ProductResponse {
 	return ProductResponse{
-		ID:            p.ID,
-		Name:          p.Name,
-		Description:   p.Description,
-		Price:         p.Price,
-		Category:      p.Category,
-		AverageRating: p.AverageRating,
-		ReviewCount:   p.ReviewCount,
+		ID:            productInstance.ID,
+		Name:          productInstance.Name,
+		Description:   productInstance.Description,
+		Price:         productInstance.Price,
+		Category:      productInstance.Category,
+		AverageRating: productInstance.AverageRating,
+		ReviewCount:   productInstance.ReviewCount,
 	}
 }
 
 func MapProductsToResponse(products []productmodel.Product) []ProductResponse {
 	var dtos []ProductResponse
-	for _, p := range products {
-		dtos = append(dtos, MapProductToResponse(p))
+	for _, productInstance := range products {
+		dtos = append(dtos, MapProductToResponse(productInstance))
 	}
 	return dtos
 }

@@ -62,8 +62,8 @@ type UpdateProfileRequest struct {
 
 func MapUsersToResponse(users []usermodel.User) []UserResponse {
 	dtos := make([]UserResponse, 0)
-	for _, u := range users {
-		dtos = append(dtos, MapUserToResponse(u))
+	for _, userInstance := range users {
+		dtos = append(dtos, MapUserToResponse(userInstance))
 	}
 	return dtos
 }

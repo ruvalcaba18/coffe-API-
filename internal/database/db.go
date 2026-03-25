@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -14,29 +15,35 @@ import (
 func NewConnection() (*sql.DB, error) {
 	host := getEnvOrDefault("DB_HOST", "localhost")
 	port := getEnvOrDefault("DB_PORT", "5432")
-	user := getEnvOrDefault("DB_USER", "postgres")
+	databaseUser := getEnvOrDefault("DB_USER", "postgres")
 	password := os.Getenv("DB_PASSWORD")
-	dbname := getEnvOrDefault("DB_NAME", "coffeeshop")
+	databaseName := getEnvOrDefault("DB_NAME", "coffeeshop")
 
-	auth := user
+	authCredentials := databaseUser
 	if password != "" {
-		auth = fmt.Sprintf("%s:%s", user, password)
+		authCredentials = fmt.Sprintf("%s:%s", databaseUser, password)
 	}
 
-	connStr := fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=disable", auth, host, port, dbname)
+	connectionString := fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=disable", authCredentials, host, port, databaseName)
 
-	database, error := sql.Open("postgres", connStr)
-	if error != nil {
-		return nil, error
+	database, connectionError := sql.Open("postgres", connectionString)
+	if connectionError != nil {
+		return nil, connectionError
 	}
 
-	if error := database.Ping(); error != nil {
-		return nil, error
+	if pingError := database.Ping(); pingError != nil {
+		return nil, pingError
 	}
 
-	database.SetMaxOpenConns(25)
-	database.SetMaxIdleConns(25)
-	database.SetConnMaxLifetime(5 * time.Minute)
+	maxOpenConnections := getEnvOrDefaultInt("DB_MAX_OPEN_CONNS", 50)
+	maxIdleConnections := getEnvOrDefaultInt("DB_MAX_IDLE_CONNS", 25)
+	connectionMaxLifetime := getEnvOrDefaultDuration("DB_CONN_MAX_LIFETIME_MINUTES", 5*time.Minute)
+	connectionMaxIdleTime := getEnvOrDefaultDuration("DB_CONN_MAX_IDLE_TIME_MINUTES", 3*time.Minute)
+
+	database.SetMaxOpenConns(maxOpenConnections)
+	database.SetMaxIdleConns(maxIdleConnections)
+	database.SetConnMaxLifetime(connectionMaxLifetime)
+	database.SetConnMaxIdleTime(connectionMaxIdleTime)
 
 	return database, nil
 }
@@ -49,4 +56,28 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return defaultValue
 	}
 	return value
+}
+
+func getEnvOrDefaultInt(key string, defaultValue int) int {
+	valueString := os.Getenv(key)
+	if valueString == "" {
+		return defaultValue
+	}
+	parsedValue, parseError := strconv.Atoi(valueString)
+	if parseError != nil {
+		return defaultValue
+	}
+	return parsedValue
+}
+
+func getEnvOrDefaultDuration(key string, defaultValue time.Duration) time.Duration {
+	valueString := os.Getenv(key)
+	if valueString == "" {
+		return defaultValue
+	}
+	parsedMinutes, parseError := strconv.Atoi(valueString)
+	if parseError != nil {
+		return defaultValue
+	}
+	return time.Duration(parsedMinutes) * time.Minute
 }
