@@ -30,7 +30,7 @@ func SendError(responseWriter http.ResponseWriter, providedError error) {
 	case apperrors.ErrUnauthorized:
 		statusCode = http.StatusUnauthorized
 		message = providedError.Error()
-	case apperrors.ErrForbidden:
+	case apperrors.ErrForbidden, apperrors.ErrCannotModifySuperAdmin:
 		statusCode = http.StatusForbidden
 		message = providedError.Error()
 	case apperrors.ErrUserNotFound, apperrors.ErrProductNotFound:

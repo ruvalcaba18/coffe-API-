@@ -50,6 +50,17 @@ func (userHandler *UserHandler) UpdateRole(responseWriter http.ResponseWriter, h
 		return
 	}
 
+	targetUser, error := userHandler.userStore.GetByID(httpRequest.Context(), userID)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrUserNotFound)
+		return
+	}
+
+	if targetUser.Role == usermodel.RoleSuperAdmin {
+		response.SendError(responseWriter, apperrors.ErrCannotModifySuperAdmin)
+		return
+	}
+
 	if error := userHandler.userStore.UpdateRole(httpRequest.Context(), userID, request.Role); error != nil {
 		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
@@ -57,11 +68,23 @@ func (userHandler *UserHandler) UpdateRole(responseWriter http.ResponseWriter, h
 
 	responseWriter.WriteHeader(http.StatusNoContent)
 }
+
 func (userHandler *UserHandler) Delete(responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	userIDString := chi.URLParam(httpRequest, "id")
 	userID, conversionError := strconv.Atoi(userIDString)
 	if conversionError != nil {
 		response.SendError(responseWriter, apperrors.ErrInvalidID)
+		return
+	}
+
+	targetUser, error := userHandler.userStore.GetByID(httpRequest.Context(), userID)
+	if error != nil {
+		response.SendError(responseWriter, apperrors.ErrUserNotFound)
+		return
+	}
+
+	if targetUser.Role == usermodel.RoleSuperAdmin {
+		response.SendError(responseWriter, apperrors.ErrCannotModifySuperAdmin)
 		return
 	}
 
@@ -72,3 +95,4 @@ func (userHandler *UserHandler) Delete(responseWriter http.ResponseWriter, httpR
 
 	responseWriter.WriteHeader(http.StatusNoContent)
 }
+

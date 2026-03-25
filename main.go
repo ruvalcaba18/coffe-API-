@@ -18,8 +18,7 @@ import (
 	reviewstore "coffeebase-api/internal/store/review"
 	userstore "coffeebase-api/internal/store/user"
 	"database/sql"
-	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -31,8 +30,13 @@ import (
 // --- Public ---
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	if error := godotenv.Overload(); error != nil {
-		log.Println("Info: No .env file found, using system environment variables")
+		slog.Warn("No .env file found, using system environment variables")
 	}
 
 	// OWASP A02 — Validate JWT secret before starting
@@ -58,17 +62,20 @@ func main() {
 func initializeDatabaseAndRunMigrations() *sql.DB {
 	databaseConnection, databaseConnectionError := database.NewConnection()
 	if databaseConnectionError != nil {
-		log.Fatalf("Could not connect to database: %v", databaseConnectionError)
+		slog.Error("Could not connect to database", "error", databaseConnectionError)
+		os.Exit(1)
 	}
 
 	migrationError := database.RunMigrations(databaseConnection)
 	if migrationError != nil {
-		log.Fatalf("Failed to run migrations: %v", migrationError)
+		slog.Error("Failed to run migrations", "error", migrationError)
+		os.Exit(1)
 	}
 
 	seedingError := database.SeedDatabase(databaseConnection)
 	if seedingError != nil {
-		log.Fatalf("Failed to seed database: %v", seedingError)
+		slog.Error("Failed to seed database", "error", seedingError)
+		os.Exit(1)
 	}
 
 	return databaseConnection
@@ -77,7 +84,7 @@ func initializeDatabaseAndRunMigrations() *sql.DB {
 func initializeRedisConnection() *redis.Client {
 	redisClient, redisConnectionError := database.NewRedisClient()
 	if redisConnectionError != nil {
-		log.Printf("Warning: Could not connect to redis: %v. Caching will be disabled.", redisConnectionError)
+		slog.Warn("Could not connect to redis. Caching will be disabled.", "error", redisConnectionError)
 		return nil
 	}
 	return redisClient
@@ -137,9 +144,10 @@ func startApiServer(applicationRouter *chi.Mux) {
 		serverPort = "8080"
 	}
 
-	fmt.Printf("Coffee Shop API starting on port %s...\n", serverPort)
+	slog.Info("Coffee Shop API starting", "port", serverPort)
 	serverRunError := http.ListenAndServe(":"+serverPort, applicationRouter)
 	if serverRunError != nil {
-		log.Fatalf("Failed to start server: %v", serverRunError)
+		slog.Error("Failed to start server", "error", serverRunError)
+		os.Exit(1)
 	}
 }

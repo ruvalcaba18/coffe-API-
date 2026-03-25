@@ -33,11 +33,11 @@ func TestStore_GetCart(t *testing.T) {
 
 	userID := 1
 	
-	sqlMock.ExpectQuery(regexp.QuoteMeta("SELECT product_id, quantity FROM cart_items WHERE user_id = $1")).
+	sqlMock.ExpectQuery(regexp.QuoteMeta("SELECT ci.product_id, ci.quantity, p.name, p.price, p.image_url FROM cart_items ci JOIN products p ON ci.product_id = p.id WHERE ci.user_id = $1")).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"product_id", "quantity"}).
-			AddRow(101, 2).
-			AddRow(102, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"product_id", "quantity", "name", "price", "image_url"}).
+			AddRow(101, 2, "Coffee A", 4.5, "url1").
+			AddRow(102, 1, "Coffee B", 5.0, "url2"))
 
 	cartInstance, error := cartStore.GetCart(context.Background(), userID)
 	assert.NoError(t, error)
@@ -45,7 +45,7 @@ func TestStore_GetCart(t *testing.T) {
 	assert.Equal(t, 101, cartInstance.Items[0].ProductID)
 	assert.Equal(t, 2, cartInstance.Items[0].Quantity)
 
-	assert.True(t, miniRedis.Exists("cart:1"))
+	assert.True(t, miniRedis.Exists("cart:v2:1"))
 
 	cartInstance2, error := cartStore.GetCart(context.Background(), userID)
 	assert.NoError(t, error)
@@ -90,7 +90,7 @@ func TestStore_ClearCart(t *testing.T) {
 	transaction.Commit()
 
 	assert.NoError(t, error)
-	assert.False(t, miniRedis.Exists("cart:1"))
+	assert.False(t, miniRedis.Exists("cart:v2:1"))
 
 	if error := sqlMock.ExpectationsWereMet(); error != nil {
 		t.Errorf("there were unfulfilled expectations: %s", error)

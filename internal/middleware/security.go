@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 )
@@ -29,9 +29,10 @@ func ValidateJWTSecret() {
 	env := os.Getenv("ENV")
 	secret := os.Getenv("JWT_SECRET")
 	if env == "production" && (secret == "" || secret == "my-secret-key-12345") {
-		log.Fatal("[SECURITY] JWT_SECRET must be set to a strong random value in production. Refusing to start.")
+		slog.Error("[SECURITY] JWT_SECRET must be set to a strong random value in production. Refusing to start.")
+		os.Exit(1)
 	}
 	if secret == "" {
-		log.Println("[SECURITY WARNING] JWT_SECRET is not set — using insecure default. Set it before deploying to production.")
+		slog.Warn("[SECURITY WARNING] JWT_SECRET is not set — using insecure default. Set it before deploying to production.")
 	}
 }

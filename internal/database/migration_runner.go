@@ -3,7 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,7 +47,7 @@ func RunMigrations(database *sql.DB) error {
 			continue
 		}
 
-		log.Printf("Applying migration: %s", filename)
+		slog.Info("Applying migration", "file", filename)
 		content, errorResult := os.ReadFile(fullPath)
 		if errorResult != nil {
 			return errorResult
@@ -71,7 +71,7 @@ func RunMigrations(database *sql.DB) error {
 		if errorResult := transaction.Commit(); errorResult != nil {
 			return errorResult
 		}
-		log.Printf("Successfully applied: %s", filename)
+		slog.Info("Successfully applied migration", "file", filename)
 	}
 
 	return nil

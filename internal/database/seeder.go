@@ -58,6 +58,14 @@ func SeedDatabase(database *sql.DB) error {
 			FirstName: "Barista",
 			LastName:  "Staff",
 		},
+		{
+			Username:  "demo_showcase",
+			Email:     "demo@labase.cafe",
+			Password:  "Demo2026!",
+			Role:      user.RoleAdmin,
+			FirstName: "Demo",
+			LastName:  "LaBase",
+		},
 	}
 
 	for _, userEntry := range users {
@@ -98,6 +106,10 @@ func SeedDatabase(database *sql.DB) error {
 
 		if userEntry.Username == "tester_user" {
 			seedTesterDetails(database, id)
+		}
+
+		if userEntry.Username == "demo_showcase" {
+			seedDemoShowcaseDetails(database, id)
 		}
 	}
 
@@ -143,7 +155,56 @@ func seedTesterDetails(database *sql.DB, userID int) {
 	executeStatement(database, paymentMethodsQuery, userID, "5555", "09/25", "Mastercard", "John Tester", false)
 }
 
+func seedDemoShowcaseDetails(database *sql.DB, userID int) {
+	executeStatement(database, "UPDATE users SET total_orders_completed = 42, total_spent = 1250.75 WHERE id = $1", userID)
+
+	rows, error := database.Query("SELECT id FROM products LIMIT 8")
+	if error != nil {
+		return
+	}
+	defer rows.Close()
+
+	var productIDs []int
+	for rows.Next() {
+		var id int
+		if error := rows.Scan(&id); error == nil {
+			productIDs = append(productIDs, id)
+		}
+	}
+
+	if len(productIDs) == 0 {
+		return
+	}
+
+	favCount := 4
+	if len(productIDs) < favCount {
+		favCount = len(productIDs)
+	}
+	for _, productID := range productIDs[:favCount] {
+		executeStatement(database, "INSERT INTO favorites (user_id, product_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", userID, productID)
+	}
+
+	demoComments := []string{
+		"Perfecto para el menú de temporada ☕",
+		"Nuestros clientes lo piden todos los días",
+		"Gran equilibrio entre acidez y cuerpo",
+		"Ideal para recomendar a nuevos clientes",
+		"La mejor opción para cold brew",
+		"Excelente aroma, siempre consistente",
+	}
+	for i, productID := range productIDs {
+		rating := 4 + (i % 2)
+		executeStatement(database, "INSERT INTO reviews (user_id, product_id, rating, comment) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+			userID, productID, rating, demoComments[i%len(demoComments)])
+	}
+
+	paymentMethodsQuery := `INSERT INTO payment_methods (user_id, last4, expiry, brand, holder, is_default) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`
+	executeStatement(database, paymentMethodsQuery, userID, "1234", "06/28", "Visa", "Demo LaBase", true)
+	executeStatement(database, paymentMethodsQuery, userID, "9876", "03/27", "Mastercard", "Demo LaBase", false)
+}
+
 func executeStatement(database *sql.DB, query string, args ...interface{}) error {
 	_, error := database.Exec(query, args...)
 	return error
 }
+

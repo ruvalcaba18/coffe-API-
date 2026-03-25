@@ -66,6 +66,7 @@ func NewRouter(
 
 	applicationRouter.Use(middleware.Logger)
 	applicationRouter.Use(middleware.Recoverer)
+	applicationRouter.Use(middleware.Timeout(60 * time.Second))
 
 	workingDirectory, workingDirectoryError := os.Getwd()
 	if workingDirectoryError == nil {
