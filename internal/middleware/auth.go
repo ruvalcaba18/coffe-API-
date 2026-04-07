@@ -59,6 +59,9 @@ func validateFingerprint(httpRequest *http.Request, tokenFingerprint string) boo
 	if ip == "" {
 		ip = httpRequest.RemoteAddr
 	}
+
+	ip = strings.Split(strings.Split(ip, ",")[0], ":")[0]
+
 	userAgent := httpRequest.Header.Get("User-Agent")
 	currentFingerprint := auth.GenerateClientFingerprint(ip, userAgent)
 

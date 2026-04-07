@@ -145,7 +145,14 @@ func (authHandler *AuthHandler) authenticateUser(httpRequest *http.Request, requ
 }
 
 func (authHandler *AuthHandler) generateUserSession(httpRequest *http.Request, user usermodel.User) (string, error) {
-	token, error := auth.GenerateToken(user.ID, string(user.Role), httpRequest.RemoteAddr, httpRequest.Header.Get("User-Agent"))
+	ip := httpRequest.Header.Get("X-Forwarded-For")
+	if ip == "" {
+		ip = httpRequest.RemoteAddr
+	}
+
+	ip = strings.Split(strings.Split(ip, ",")[0], ":")[0]
+
+	token, error := auth.GenerateToken(user.ID, string(user.Role), ip, httpRequest.Header.Get("User-Agent"))
 	if error != nil {
 		return "", apperrors.ErrInternalServerError
 	}
