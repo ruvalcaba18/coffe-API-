@@ -15,11 +15,21 @@ import (
 func NewConnection() (*sql.DB, error) {
 	connectionString := os.Getenv("DATABASE_URL")
 	if connectionString == "" {
-		host := getEnvOrDefault("DB_HOST", "localhost")
-		port := getEnvOrDefault("DB_PORT", "5432")
-		databaseUser := getEnvOrDefault("DB_USER", "postgres")
+		host := os.Getenv("DB_HOST")
+		if host == "" { host = getEnvOrDefault("PGHOST", "localhost") }
+
+		port := os.Getenv("DB_PORT")
+		if port == "" { port = os.Getenv("DBPORT") }
+		if port == "" { port = getEnvOrDefault("PGPORT", "5432") }
+
+		databaseUser := os.Getenv("DB_USER")
+		if databaseUser == "" { databaseUser = getEnvOrDefault("PGUSER", "postgres") }
+
 		password := os.Getenv("DB_PASSWORD")
-		databaseName := getEnvOrDefault("DB_NAME", "coffeeshop")
+		if password == "" { password = os.Getenv("PGPASSWORD") }
+
+		databaseName := os.Getenv("DB_NAME")
+		if databaseName == "" { databaseName = getEnvOrDefault("PGDATABASE", "coffeeshop") }
 
 		connectionString = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", 
 			host, port, databaseUser, password, databaseName)

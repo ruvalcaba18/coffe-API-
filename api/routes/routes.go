@@ -39,10 +39,8 @@ func NewRouter(
 ) *chi.Mux {
 	applicationRouter := chi.NewRouter()
 
-	// OWASP A05 - Security headers on every response
 	applicationRouter.Use(custom_middleware.SecurityHeaders)
 
-	// OWASP A04 - Limit request body to 4MB to prevent resource exhaustion
 	applicationRouter.Use(middleware.RequestSize(4 * 1024 * 1024))
 
 	allowedOriginsString := os.Getenv("ALLOWED_ORIGINS")
