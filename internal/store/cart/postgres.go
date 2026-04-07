@@ -56,7 +56,7 @@ func (store *postgresStore) GetCart(requestContext context.Context, userID int) 
 	}
 
 	query := `
-		SELECT ci.product_id, ci.quantity, p.name, p.price, p.image_url 
+		SELECT ci.product_id, ci.quantity, p.name, p.price, COALESCE(p.image_url, '') 
 		FROM cart_items ci
 		JOIN products p ON ci.product_id = p.id
 		WHERE ci.user_id = $1

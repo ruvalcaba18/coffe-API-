@@ -6,6 +6,7 @@ import (
 	"coffeebase-api/internal/apperrors"
 	"coffeebase-api/internal/middleware"
 	"coffeebase-api/internal/store/cart"
+	"log/slog"
 	"net/http"
 )
 
@@ -25,6 +26,7 @@ func (cartHandler *CartHandler) GetCart(responseWriter http.ResponseWriter, http
 	userID := httpRequest.Context().Value(middleware.UserIDKey).(int)
 	userCart, error := cartHandler.cartStore.GetCart(httpRequest.Context(), userID)
 	if error != nil {
+		slog.Error("Failed to fetch cart", "error", error)
 		response.SendError(responseWriter, apperrors.ErrInternalServerError)
 		return
 	}
