@@ -19,6 +19,7 @@ import (
 	userstore "coffeebase-api/internal/store/user"
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -47,6 +48,7 @@ func main() {
 
 	databaseConnection, initError := initializeDatabaseAndRunMigrations()
 	if initError != nil {
+		fmt.Printf("🔴 CRITICAL: Database initialization failed explicitly with error: %v\n", initError)
 		slog.Error("Database initialization failed", "error", initError)
 		os.Exit(1)
 	}
