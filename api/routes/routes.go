@@ -48,7 +48,12 @@ func NewRouter(
 	allowedOriginsString := os.Getenv("ALLOWED_ORIGINS")
 	allowedOrigins := []string{"http://localhost:3000", "http://localhost:5173"} 
 	if allowedOriginsString != "" {
-		allowedOrigins = strings.Split(allowedOriginsString, ",")
+		parts := strings.Split(allowedOriginsString, ",")
+		var cleanedOrigins []string
+		for _, part := range parts {
+			cleanedOrigins = append(cleanedOrigins, strings.TrimSpace(part))
+		}
+		allowedOrigins = cleanedOrigins
 	}
 
 	applicationRouter.Use(cors.Handler(cors.Options{
