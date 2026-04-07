@@ -13,18 +13,17 @@ import (
 // --- Public ---
 
 func NewConnection() (*sql.DB, error) {
-	host := getEnvOrDefault("DB_HOST", "localhost")
-	port := getEnvOrDefault("DB_PORT", "5432")
-	databaseUser := getEnvOrDefault("DB_USER", "postgres")
-	password := os.Getenv("DB_PASSWORD")
-	databaseName := getEnvOrDefault("DB_NAME", "coffeeshop")
+	connectionString := os.Getenv("DATABASE_URL")
+	if connectionString == "" {
+		host := getEnvOrDefault("DB_HOST", "localhost")
+		port := getEnvOrDefault("DB_PORT", "5432")
+		databaseUser := getEnvOrDefault("DB_USER", "postgres")
+		password := os.Getenv("DB_PASSWORD")
+		databaseName := getEnvOrDefault("DB_NAME", "coffeeshop")
 
-	authCredentials := databaseUser
-	if password != "" {
-		authCredentials = fmt.Sprintf("%s:%s", databaseUser, password)
+		connectionString = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", 
+			host, port, databaseUser, password, databaseName)
 	}
-
-	connectionString := fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=disable", authCredentials, host, port, databaseName)
 
 	database, connectionError := sql.Open("postgres", connectionString)
 	if connectionError != nil {
