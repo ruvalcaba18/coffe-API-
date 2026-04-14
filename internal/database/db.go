@@ -31,8 +31,13 @@ func NewConnection() (*sql.DB, error) {
 		databaseName := os.Getenv("DB_NAME")
 		if databaseName == "" { databaseName = getEnvOrDefault("PGDATABASE", "coffeeshop") }
 
-		connectionString = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", 
-			host, port, databaseUser, password, databaseName)
+		if password != "" {
+			connectionString = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+				databaseUser, password, host, port, databaseName)
+		} else {
+			connectionString = fmt.Sprintf("postgres://%s@%s:%s/%s?sslmode=disable",
+				databaseUser, host, port, databaseName)
+		}
 	}
 
 	database, connectionError := sql.Open("postgres", connectionString)
