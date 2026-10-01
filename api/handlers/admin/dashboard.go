@@ -44,10 +44,7 @@ func (dashboardHandler *DashboardHandler) GetStats(responseWriter http.ResponseW
 	}
 
 	couponDTOs := dto.MapCouponsToResponse(couponList)
-	totalCouponsUsed := 0
-	for _, couponInstance := range couponList {
-		totalCouponsUsed += couponInstance.UsedCount
-	}
+	totalCouponsUsed, _ := dashboardHandler.couponStore.GetTotalUsedCount(httpRequest.Context())
 
 	dashboardResponse := dto.DashboardStatsDTO{
 		Orders: dto.DashboardOrderStatsDTO{

@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -48,9 +51,7 @@ func GenerateToken(userID int, role string, clientIP string, userAgent string) (
 
 func ValidateToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
-	token, error := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return getSecretKey(), nil
-	})
+	token, error := jwt.ParseWithClaims(tokenString, claims, jwtKeyLookup)
 
 	if error != nil {
 		return nil, error
@@ -84,7 +85,51 @@ func CheckPasswordHash(password, hash string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
+// GenerateRefreshToken genera un token opaco criptográficamente seguro.
+// Devuelve (rawToken, tokenHash, error).
+// rawToken: string para enviar al cliente (nunca se persiste en DB).
+// tokenHash: HMAC-SHA256 del rawToken, lo que SÍ se almacena en DB.
+func GenerateRefreshToken() (rawToken string, tokenHash string, err error) {
+	bytes := make([]byte, 32)
+	if _, err = rand.Read(bytes); err != nil {
+		return "", "", err
+	}
+	rawToken = base64.URLEncoding.EncodeToString(bytes)
+	tokenHash = HashRefreshToken(rawToken)
+	return rawToken, tokenHash, nil
+}
+
+// HashRefreshToken calcula el HMAC-SHA256 de un refresh token raw.
+// Usa REFRESH_TOKEN_SECRET (env) como clave — separado del JWT_SECRET.
+func HashRefreshToken(rawToken string) string {
+	secret := os.Getenv("REFRESH_TOKEN_SECRET")
+	if secret == "" {
+		secret = "refresh-secret-change-me"
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(rawToken))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// GenerateTokenPair genera el par access_token + refresh_token para una sesión.
+// Devuelve (accessToken, rawRefreshToken, error).
+func GenerateTokenPair(userID int, role, ip, userAgent string) (accessToken, rawRefreshToken string, err error) {
+	accessToken, err = GenerateToken(userID, role, ip, userAgent)
+	if err != nil {
+		return "", "", err
+	}
+	rawRefreshToken, _, err = GenerateRefreshToken()
+	if err != nil {
+		return "", "", err
+	}
+	return accessToken, rawRefreshToken, nil
+}
+
 // --- Private ---
+
+func jwtKeyLookup(token *jwt.Token) (interface{}, error) {
+	return getSecretKey(), nil
+}
 
 func getSecretKey() []byte {
 	secret := os.Getenv("JWT_SECRET")

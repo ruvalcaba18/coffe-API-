@@ -24,13 +24,16 @@ func SendError(responseWriter http.ResponseWriter, providedError error) {
 	message := "an unexpected error occurred"
 
 	switch providedError {
-	case apperrors.ErrInvalidRequest, apperrors.ErrInvalidCoupon, apperrors.ErrCouponNotValidForPurchase, apperrors.ErrInvalidID, apperrors.ErrCartEmpty:
+	case apperrors.ErrInvalidRequest, apperrors.ErrInvalidCoupon, apperrors.ErrCouponNotValidForPurchase,
+		apperrors.ErrInvalidID, apperrors.ErrCartEmpty,
+		apperrors.ErrQRInvalid, apperrors.ErrQRAlreadyUsed,
+		apperrors.ErrCheckInAlreadyDone, apperrors.ErrNoCheckInForCheckOut:
 		statusCode = http.StatusBadRequest
 		message = providedError.Error()
-	case apperrors.ErrUnauthorized:
+	case apperrors.ErrUnauthorized, apperrors.ErrRefreshTokenInvalid, apperrors.ErrRefreshTokenRevoked:
 		statusCode = http.StatusUnauthorized
 		message = providedError.Error()
-	case apperrors.ErrForbidden, apperrors.ErrCannotModifySuperAdmin:
+	case apperrors.ErrForbidden, apperrors.ErrCannotModifySuperAdmin, apperrors.ErrNotASubordinate:
 		statusCode = http.StatusForbidden
 		message = providedError.Error()
 	case apperrors.ErrUserNotFound, apperrors.ErrProductNotFound:

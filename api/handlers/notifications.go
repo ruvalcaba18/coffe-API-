@@ -10,9 +10,7 @@ import (
 )
 
 var websocketUpgrader = websocket.Upgrader{
-	CheckOrigin: func(request *http.Request) bool {
-		return true
-	},
+	CheckOrigin: checkWebSocketOrigin,
 }
 
 type NotificationHandler struct {
@@ -61,16 +59,22 @@ func (notificationHandler *NotificationHandler) HandleWS(responseWriter http.Res
 
 // --- Private ---
 
+func checkWebSocketOrigin(request *http.Request) bool {
+	return true
+}
+
 func (notificationHandler *NotificationHandler) handleIncomingWSMessage(userID int, message map[string]interface{}) {
 	if message["type"] == "chat_message" {
-		go func() {
-			time.Sleep(1 * time.Second)
-			autoReply := map[string]interface{}{
-				"type":    "chat_message",
-				"message": "¡Recibido! Un barista se pondrá en contacto contigo pronto.",
-				"sender":  "support",
-			}
-			notificationHandler.notificationHub.SendToUser(userID, autoReply)
-		}()
+		go notificationHandler.sendDelayedAutoReply(userID)
 	}
+}
+
+func (notificationHandler *NotificationHandler) sendDelayedAutoReply(userID int) {
+	time.Sleep(1 * time.Second)
+	autoReply := map[string]interface{}{
+		"type":    "chat_message",
+		"message": "¡Recibido! Un barista se pondrá en contacto contigo pronto.",
+		"sender":  "support",
+	}
+	notificationHandler.notificationHub.SendToUser(userID, autoReply)
 }

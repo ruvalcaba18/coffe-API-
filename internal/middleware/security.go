@@ -21,6 +21,10 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		responseWriter.Header().Del("Server")
 		responseWriter.Header().Del("X-Powered-By")
 
+		// OWASP A05: Evitar cacheo de respuestas sensibles de la API
+		responseWriter.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		responseWriter.Header().Set("Pragma", "no-cache")
+
 		next.ServeHTTP(responseWriter, httpRequest)
 	})
 }
@@ -34,5 +38,13 @@ func ValidateJWTSecret() {
 	}
 	if jwtSecret == "" {
 		slog.Warn("[SECURITY WARNING] JWT_SECRET is not set — using insecure default. Set it before deploying to production.")
+	}
+
+	// OWASP A02: Verificar también los secrets de refresh token y QR
+	if refreshSecret := os.Getenv("REFRESH_TOKEN_SECRET"); refreshSecret == "" {
+		slog.Warn("[SECURITY WARNING] REFRESH_TOKEN_SECRET is not set — using insecure default. Set it before deploying to production.")
+	}
+	if qrSecret := os.Getenv("QR_TOKEN_SECRET"); qrSecret == "" {
+		slog.Warn("[SECURITY WARNING] QR_TOKEN_SECRET is not set — using insecure default. Set it before deploying to production.")
 	}
 }

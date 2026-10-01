@@ -18,6 +18,25 @@ import (
 	"github.com/go-chi/cors"
 )
 
+type RouterBuilder struct {
+	authHandler            *handlers.AuthHandler
+	productHandler         *handlers.ProductHandler
+	orderHandler           *handlers.OrderHandler
+	reviewHandler          *handlers.ReviewHandler
+	favoriteHandler        *handlers.FavoriteHandler
+	userHandler            *handlers.UserHandler
+	cartHandler            *handlers.CartHandler
+	attendanceHandler      *handlers.AttendanceHandler
+	adminProductHandler    *adminhandlers.ProductHandler
+	adminOrderHandler      *adminhandlers.OrderHandler
+	adminUserHandler       *adminhandlers.UserHandler
+	notificationHandler    *handlers.NotificationHandler
+	adminCouponHandler     *adminhandlers.CouponHandler
+	adminDashboardHandler  *adminhandlers.DashboardHandler
+	adminAttendanceHandler *adminhandlers.AdminAttendanceHandler
+	billingHandler         *handlers.BillingHandler
+}
+
 // --- Public ---
 
 func NewRouter(
@@ -28,23 +47,44 @@ func NewRouter(
 	favoriteHandler *handlers.FavoriteHandler,
 	userHandler *handlers.UserHandler,
 	cartHandler *handlers.CartHandler,
+	attendanceHandler *handlers.AttendanceHandler,
 	adminProductHandler *adminhandlers.ProductHandler,
 	adminOrderHandler *adminhandlers.OrderHandler,
 	adminUserHandler *adminhandlers.UserHandler,
 	notificationHandler *handlers.NotificationHandler,
 	adminCouponHandler *adminhandlers.CouponHandler,
 	adminDashboardHandler *adminhandlers.DashboardHandler,
+	adminAttendanceHandler *adminhandlers.AdminAttendanceHandler,
 	billingHandler *handlers.BillingHandler,
 	cacheService cache.Service,
 ) *chi.Mux {
+	builder := &RouterBuilder{
+		authHandler:            authHandler,
+		productHandler:         productHandler,
+		orderHandler:           orderHandler,
+		reviewHandler:          reviewHandler,
+		favoriteHandler:        favoriteHandler,
+		userHandler:            userHandler,
+		cartHandler:            cartHandler,
+		attendanceHandler:      attendanceHandler,
+		adminProductHandler:    adminProductHandler,
+		adminOrderHandler:      adminOrderHandler,
+		adminUserHandler:       adminUserHandler,
+		notificationHandler:    notificationHandler,
+		adminCouponHandler:     adminCouponHandler,
+		adminDashboardHandler:  adminDashboardHandler,
+		adminAttendanceHandler: adminAttendanceHandler,
+		billingHandler:         billingHandler,
+	}
+
 	applicationRouter := chi.NewRouter()
 
 	applicationRouter.Use(custom_middleware.SecurityHeaders)
-
+	applicationRouter.Use(custom_middleware.AuditMiddleware) // OWASP A09
 	applicationRouter.Use(middleware.RequestSize(4 * 1024 * 1024))
 
 	allowedOriginsString := os.Getenv("ALLOWED_ORIGINS")
-	allowedOrigins := []string{"http://localhost:3000", "http://localhost:5173"} 
+	allowedOrigins := []string{"http://localhost:3000", "http://localhost:5173"}
 	if allowedOriginsString != "" {
 		parts := strings.Split(allowedOriginsString, ",")
 		var cleanedOrigins []string
@@ -77,41 +117,71 @@ func NewRouter(
 		setupFileServer(applicationRouter, "/uploads", filesDirectory)
 	}
 
-	applicationRouter.Route("/api/v1", func(apiV1Router chi.Router) {
-		apiV1Router.Post("/users", authHandler.Register)
-		apiV1Router.Post("/tokens", authHandler.Login)
-		registerProductRoutes(apiV1Router, productHandler)
-		apiV1Router.Group(func(wsRouter chi.Router) {
-			wsRouter.Use(custom_middleware.AuthMiddleware)
-			wsRouter.Get("/notifications/ws", notificationHandler.HandleWS)
-		})
-
-		apiV1Router.Group(func(protectedRouter chi.Router) {
-			protectedRouter.Use(custom_middleware.AuthMiddleware)
-
-			registerUserRoutes(protectedRouter, userHandler)
-			registerOrderRoutes(protectedRouter, orderHandler)
-			registerCartRoutes(protectedRouter, cartHandler)
-			registerReviewRoutes(protectedRouter, reviewHandler)
-			registerFavoriteRoutes(protectedRouter, favoriteHandler)
-
-			protectedRouter.Route("/billing", func(billingRouter chi.Router) {
-				billingRouter.Get("/wallet", billingHandler.GetWallet)
-				billingRouter.Get("/payment-methods", billingHandler.GetPaymentMethods)
-				billingRouter.Post("/payment-methods", billingHandler.AddPaymentMethod)
-			})
-
-			protectedRouter.Group(func(adminRouter chi.Router) {
-				adminRouter.Use(custom_middleware.AdminMiddleware)
-				registerAdminRoutes(adminRouter, adminProductHandler, adminOrderHandler, adminUserHandler, adminCouponHandler, adminDashboardHandler)
-			})
-		})
-	})
+	applicationRouter.Route("/api/v1", builder.registerAPIV1)
 
 	return applicationRouter
 }
 
-// --- Private ---
+// --- RouterBuilder Methods (sin nested functions) ---
+
+func (b *RouterBuilder) registerAPIV1(apiV1Router chi.Router) {
+	// Rutas públicas de auth
+	apiV1Router.Post("/users", b.authHandler.Register)
+	apiV1Router.Post("/tokens", b.authHandler.Login)
+	apiV1Router.Post("/tokens/refresh", b.authHandler.Refresh)
+	apiV1Router.Post("/logout", b.authHandler.Logout)
+
+	// Catálogo público
+	registerProductRoutes(apiV1Router, b.productHandler)
+
+	// WebSocket con auth
+	apiV1Router.Group(b.registerWebSocketRoutes)
+
+	// Rutas protegidas (empleados y clientes)
+	apiV1Router.Group(b.registerProtectedRoutes)
+}
+
+func (b *RouterBuilder) registerWebSocketRoutes(wsRouter chi.Router) {
+	wsRouter.Use(custom_middleware.AuthMiddleware)
+	wsRouter.Get("/notifications/ws", b.notificationHandler.HandleWS)
+}
+
+func (b *RouterBuilder) registerProtectedRoutes(protectedRouter chi.Router) {
+	protectedRouter.Use(custom_middleware.AuthMiddleware)
+
+	registerUserRoutes(protectedRouter, b.userHandler)
+	registerOrderRoutes(protectedRouter, b.orderHandler)
+	registerCartRoutes(protectedRouter, b.cartHandler)
+	registerReviewRoutes(protectedRouter, b.reviewHandler)
+	registerFavoriteRoutes(protectedRouter, b.favoriteHandler)
+	registerAttendanceRoutes(protectedRouter, b.attendanceHandler)
+
+	protectedRouter.Route("/billing", b.registerBillingRoutes)
+
+	// Rutas de administración
+	protectedRouter.Group(b.registerAdminRoutesGroup)
+}
+
+func (b *RouterBuilder) registerBillingRoutes(billingRouter chi.Router) {
+	billingRouter.Get("/wallet", b.billingHandler.GetWallet)
+	billingRouter.Get("/payment-methods", b.billingHandler.GetPaymentMethods)
+	billingRouter.Post("/payment-methods", b.billingHandler.AddPaymentMethod)
+}
+
+func (b *RouterBuilder) registerAdminRoutesGroup(adminRouter chi.Router) {
+	adminRouter.Use(custom_middleware.AdminMiddleware)
+	registerAdminRoutes(
+		adminRouter,
+		b.adminProductHandler,
+		b.adminOrderHandler,
+		b.adminUserHandler,
+		b.adminCouponHandler,
+		b.adminDashboardHandler,
+		b.adminAttendanceHandler,
+	)
+}
+
+// --- Specific Route Registrars ---
 
 func registerUserRoutes(router chi.Router, userHandler *handlers.UserHandler) {
 	router.Get("/profile", userHandler.GetProfile)
@@ -148,6 +218,12 @@ func registerFavoriteRoutes(router chi.Router, favoriteHandler *handlers.Favorit
 	router.Delete("/favorites/{id}", favoriteHandler.Remove)
 }
 
+func registerAttendanceRoutes(router chi.Router, attendanceHandler *handlers.AttendanceHandler) {
+	router.Post("/attendance/check-in", attendanceHandler.CheckIn)
+	router.Post("/attendance/check-out", attendanceHandler.CheckOut)
+	router.Get("/attendance/me", attendanceHandler.GetMyAttendance)
+}
+
 func registerAdminRoutes(
 	router chi.Router,
 	productHandler *adminhandlers.ProductHandler,
@@ -155,6 +231,7 @@ func registerAdminRoutes(
 	userHandler *adminhandlers.UserHandler,
 	couponHandler *adminhandlers.CouponHandler,
 	dashboardHandler *adminhandlers.DashboardHandler,
+	attendanceHandler *adminhandlers.AdminAttendanceHandler,
 ) {
 	router.Post("/admin/products", productHandler.Create)
 	router.Post("/admin/products/bulk", productHandler.CreateBulk)
@@ -174,6 +251,27 @@ func registerAdminRoutes(
 	router.Delete("/admin/coupons/{id}", couponHandler.Delete)
 
 	router.Get("/admin/dashboard/stats", dashboardHandler.GetStats)
+
+	// Trazabilidad de asistencia via QR
+	router.Post("/admin/attendance/qr/generate", attendanceHandler.GenerateQR)
+	router.Get("/admin/attendance", attendanceHandler.GetAll)
+	router.Get("/admin/attendance/{user_id}", attendanceHandler.GetByUserID)
+}
+
+type staticFileServerHandler struct {
+	rootDirectory http.FileSystem
+}
+
+func (h *staticFileServerHandler) ServeHTTP(responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	if strings.Contains(httpRequest.URL.Path, "..") {
+		http.Error(responseWriter, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	routeContext := chi.RouteContext(httpRequest.Context())
+	pathPrefix := strings.TrimSuffix(routeContext.RoutePattern(), "/*")
+	fileServerInstance := http.StripPrefix(pathPrefix, http.FileServer(h.rootDirectory))
+	fileServerInstance.ServeHTTP(responseWriter, httpRequest)
 }
 
 func setupFileServer(applicationRouter chi.Router, urlPath string, rootDirectory http.FileSystem) {
@@ -187,15 +285,6 @@ func setupFileServer(applicationRouter chi.Router, urlPath string, rootDirectory
 	}
 	urlPath += "*"
 
-	applicationRouter.Get(urlPath, func(responseWriter http.ResponseWriter, httpRequest *http.Request) {
-		if strings.Contains(httpRequest.URL.Path, "..") {
-			http.Error(responseWriter, "Invalid path", http.StatusBadRequest)
-			return
-		}
-
-		routeContext := chi.RouteContext(httpRequest.Context())
-		pathPrefix := strings.TrimSuffix(routeContext.RoutePattern(), "/*")
-		fileServerInstance := http.StripPrefix(pathPrefix, http.FileServer(rootDirectory))
-		fileServerInstance.ServeHTTP(responseWriter, httpRequest)
-	})
+	fileHandler := &staticFileServerHandler{rootDirectory: rootDirectory}
+	applicationRouter.Method(http.MethodGet, urlPath, fileHandler)
 }

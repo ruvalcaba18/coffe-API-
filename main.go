@@ -9,6 +9,7 @@ import (
 	"coffeebase-api/internal/middleware"
 	"coffeebase-api/internal/notifications"
 	orderservice "coffeebase-api/internal/service/order"
+	attendancestore "coffeebase-api/internal/store/attendance"
 	billingstore "coffeebase-api/internal/store/billing"
 	cartstore "coffeebase-api/internal/store/cart"
 	couponstore "coffeebase-api/internal/store/coupon"
@@ -16,6 +17,7 @@ import (
 	orderstore "coffeebase-api/internal/store/order"
 	productstore "coffeebase-api/internal/store/product"
 	reviewstore "coffeebase-api/internal/store/review"
+	tokenstore "coffeebase-api/internal/store/token"
 	userstore "coffeebase-api/internal/store/user"
 	"context"
 	"database/sql"
@@ -99,33 +101,41 @@ func initializeRedisConnection() *redis.Client {
 }
 
 func buildApplicationRouter(databaseConnection *sql.DB, cacheService cache.Service) *chi.Mux {
-	userStoreInstance := userstore.NewStore(databaseConnection)
-	productStoreInstance := productstore.NewStore(databaseConnection, cacheService)
-	orderStoreInstance := orderstore.NewStore(databaseConnection)
-	reviewStoreInstance := reviewstore.NewStore(databaseConnection)
-	favoriteStoreInstance := favoritestore.NewStore(databaseConnection)
-	cartStoreInstance := cartstore.NewStore(databaseConnection, cacheService)
-	couponStoreInstance := couponstore.NewStore(databaseConnection)
-	billingStoreInstance := billingstore.NewStore(databaseConnection)
+	// Stores
+	userStoreInstance       := userstore.NewStore(databaseConnection)
+	productStoreInstance    := productstore.NewStore(databaseConnection, cacheService)
+	orderStoreInstance      := orderstore.NewStore(databaseConnection)
+	reviewStoreInstance     := reviewstore.NewStore(databaseConnection)
+	favoriteStoreInstance   := favoritestore.NewStore(databaseConnection)
+	cartStoreInstance       := cartstore.NewStore(databaseConnection, cacheService)
+	couponStoreInstance     := couponstore.NewStore(databaseConnection)
+	billingStoreInstance    := billingstore.NewStore(databaseConnection)
+	tokenStoreInstance      := tokenstore.NewStore(databaseConnection)
+	attendanceStoreInstance := attendancestore.NewStore(databaseConnection)
 
+	// Services
 	orderBusinessService := orderservice.NewService(databaseConnection, cacheService, orderStoreInstance, cartStoreInstance, productStoreInstance, couponStoreInstance)
-	notificationHub := notifications.NewHub()
+	notificationHub      := notifications.NewHub()
 
-	authHandler := handlers.NewAuthHandler(userStoreInstance, notificationHub)
-	productHandler := handlers.NewProductHandler(productStoreInstance)
-	orderHandler := handlers.NewOrderHandler(orderStoreInstance, productStoreInstance, orderBusinessService)
-	reviewHandler := handlers.NewReviewHandler(reviewStoreInstance)
-	favoriteHandler := handlers.NewFavoriteHandler(favoriteStoreInstance)
-	userHandler := handlers.NewUserHandler(userStoreInstance)
-	cartHandler := handlers.NewCartHandler(cartStoreInstance)
+	// Handlers — public
+	authHandler         := handlers.NewAuthHandler(userStoreInstance, tokenStoreInstance, notificationHub)
+	productHandler      := handlers.NewProductHandler(productStoreInstance)
+	orderHandler        := handlers.NewOrderHandler(orderStoreInstance, productStoreInstance, orderBusinessService)
+	reviewHandler       := handlers.NewReviewHandler(reviewStoreInstance)
+	favoriteHandler     := handlers.NewFavoriteHandler(favoriteStoreInstance)
+	userHandler         := handlers.NewUserHandler(userStoreInstance)
+	cartHandler         := handlers.NewCartHandler(cartStoreInstance)
 	notificationHandler := handlers.NewNotificationHandler(notificationHub)
-	billingHandler := handlers.NewBillingHandler(billingStoreInstance)
+	billingHandler      := handlers.NewBillingHandler(billingStoreInstance)
+	attendanceHandler   := handlers.NewAttendanceHandler(attendanceStoreInstance)
 
-	adminProductHandler := adminhandlers.NewProductHandler(productStoreInstance)
-	adminOrderHandler := adminhandlers.NewOrderHandler(orderStoreInstance, notificationHub)
-	adminUserHandler := adminhandlers.NewUserHandler(userStoreInstance)
-	adminCouponHandler := adminhandlers.NewCouponHandler(couponStoreInstance)
-	adminDashboardHandler := adminhandlers.NewDashboardHandler(orderStoreInstance, userStoreInstance, couponStoreInstance)
+	// Handlers — admin
+	adminProductHandler    := adminhandlers.NewProductHandler(productStoreInstance)
+	adminOrderHandler      := adminhandlers.NewOrderHandler(orderStoreInstance, notificationHub)
+	adminUserHandler       := adminhandlers.NewUserHandler(userStoreInstance)
+	adminCouponHandler     := adminhandlers.NewCouponHandler(couponStoreInstance)
+	adminDashboardHandler  := adminhandlers.NewDashboardHandler(orderStoreInstance, userStoreInstance, couponStoreInstance)
+	adminAttendanceHandler := adminhandlers.NewAdminAttendanceHandler(attendanceStoreInstance, userStoreInstance)
 
 	return routes.NewRouter(
 		authHandler,
@@ -135,12 +145,14 @@ func buildApplicationRouter(databaseConnection *sql.DB, cacheService cache.Servi
 		favoriteHandler,
 		userHandler,
 		cartHandler,
+		attendanceHandler,
 		adminProductHandler,
 		adminOrderHandler,
 		adminUserHandler,
 		notificationHandler,
 		adminCouponHandler,
 		adminDashboardHandler,
+		adminAttendanceHandler,
 		billingHandler,
 		cacheService,
 	)
@@ -162,22 +174,7 @@ func startServerWithGracefulShutdown(applicationRouter *chi.Mux) {
 
 	shutdownComplete := make(chan struct{})
 
-	go func() {
-		shutdownSignal := make(chan os.Signal, 1)
-		signal.Notify(shutdownSignal, syscall.SIGINT, syscall.SIGTERM)
-		receivedSignal := <-shutdownSignal
-
-		slog.Info("Shutdown signal received, draining connections...", "signal", receivedSignal.String())
-
-		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancelShutdown()
-
-		if shutdownError := httpServer.Shutdown(shutdownContext); shutdownError != nil {
-			slog.Error("Server forced to shutdown", "error", shutdownError)
-		}
-
-		close(shutdownComplete)
-	}()
+	go listenForShutdownSignal(httpServer, shutdownComplete)
 
 	slog.Info("Coffee Shop API starting", "port", serverPort)
 	if serverError := httpServer.ListenAndServe(); serverError != nil && serverError != http.ErrServerClosed {
@@ -187,4 +184,21 @@ func startServerWithGracefulShutdown(applicationRouter *chi.Mux) {
 
 	<-shutdownComplete
 	slog.Info("Server shutdown complete")
+}
+
+func listenForShutdownSignal(httpServer *http.Server, shutdownComplete chan struct{}) {
+	shutdownSignal := make(chan os.Signal, 1)
+	signal.Notify(shutdownSignal, syscall.SIGINT, syscall.SIGTERM)
+	receivedSignal := <-shutdownSignal
+
+	slog.Info("Shutdown signal received, draining connections...", "signal", receivedSignal.String())
+
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelShutdown()
+
+	if shutdownError := httpServer.Shutdown(shutdownContext); shutdownError != nil {
+		slog.Error("Server forced to shutdown", "error", shutdownError)
+	}
+
+	close(shutdownComplete)
 }

@@ -19,4 +19,17 @@ var (
 	ErrDuplicateCard             = errors.New("this card is already registered")
 	ErrCouponAlreadyUsedByUser   = errors.New("you have already used this coupon")
 	ErrCannotModifySuperAdmin    = errors.New("cannot modify or delete a super admin")
+
+	// Refresh token
+	ErrRefreshTokenInvalid  = errors.New("invalid or expired refresh token")
+	ErrRefreshTokenRevoked  = errors.New("session revoked, please login again")
+
+	// QR attendance
+	ErrQRInvalid            = errors.New("invalid or expired QR code")
+	ErrQRAlreadyUsed        = errors.New("QR code already used")
+	ErrCheckInAlreadyDone   = errors.New("check-in already registered for today")
+	ErrNoCheckInForCheckOut = errors.New("no check-in found for today, cannot check-out")
+
+	// Subordinados
+	ErrNotASubordinate      = errors.New("user is not a subordinate")
 )

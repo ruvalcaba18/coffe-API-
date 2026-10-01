@@ -67,3 +67,20 @@ func MapUsersToResponse(users []usermodel.User) []UserResponse {
 	}
 	return dtos
 }
+
+// TokenPairResponse es la respuesta del login y del refresh de tokens.
+type TokenPairResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"` // segundos hasta que expira el access token
+}
+
+// RefreshRequest es el body para renovar el par de tokens.
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// LogoutRequest es el body para hacer logout con revocación del refresh token.
+type LogoutRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}

@@ -15,6 +15,7 @@ type Store interface {
 	Delete(requestContext context.Context, id int) error
 	HasUserUsedCoupon(requestContext context.Context, userID int, code string) (bool, error)
 	RecordUserCouponUsage(requestContext context.Context, transaction *sql.Tx, userID int, code string, orderID string) error
+	GetTotalUsedCount(requestContext context.Context) (int, error)
 }
 
 type postgresStore struct {

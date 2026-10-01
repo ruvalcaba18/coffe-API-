@@ -9,6 +9,20 @@ import (
 	"sort"
 )
 
+type migrationCollector struct {
+	files []string
+}
+
+func (c *migrationCollector) collect(path string, info os.FileInfo, walkError error) error {
+	if walkError != nil {
+		return walkError
+	}
+	if !info.IsDir() && filepath.Ext(path) == ".sql" {
+		c.files = append(c.files, path)
+	}
+	return nil
+}
+
 func RunMigrations(database *sql.DB) error {
 	_, errorResult := database.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -20,22 +34,14 @@ func RunMigrations(database *sql.DB) error {
 		return fmt.Errorf("could not create migrations table: %v", errorResult)
 	}
 
-	var migrationFiles []string
-	errorResult = filepath.Walk("internal/database/migrations", func(path string, info os.FileInfo, walkError error) error {
-		if walkError != nil {
-			return walkError
-		}
-		if !info.IsDir() && filepath.Ext(path) == ".sql" {
-			migrationFiles = append(migrationFiles, path)
-		}
-		return nil
-	})
+	collector := &migrationCollector{files: make([]string, 0)}
+	errorResult = filepath.Walk("internal/database/migrations", collector.collect)
 	if errorResult != nil {
 		return fmt.Errorf("could not read migrations directory: %v", errorResult)
 	}
-	sort.Strings(migrationFiles)
+	sort.Strings(collector.files)
 
-	for _, fullPath := range migrationFiles {
+	for _, fullPath := range collector.files {
 		filename := filepath.Base(fullPath)
 		var exists bool
 		errorResult := database.QueryRow("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)", filename).Scan(&exists)

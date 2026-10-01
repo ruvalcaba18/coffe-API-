@@ -76,3 +76,10 @@ func (store *postgresStore) RecordUserCouponUsage(requestContext context.Context
 	_, error := store.databaseConnection.ExecContext(requestContext, query, userID, code, orderID)
 	return error
 }
+
+func (store *postgresStore) GetTotalUsedCount(requestContext context.Context) (int, error) {
+	var total int
+	query := `SELECT COALESCE(SUM(used_count), 0) FROM coupons`
+	error := store.databaseConnection.QueryRowContext(requestContext, query).Scan(&total)
+	return total, error
+}

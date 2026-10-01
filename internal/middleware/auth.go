@@ -15,9 +15,11 @@ const UserRoleKey contextKey = "user_role"
 
 // --- Public ---
 
+// AuthMiddleware valida el JWT de cada request.
+// OWASP A04: Solo acepta token vía header Authorization: Bearer — NO query param ?token=
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(responseWriter http.ResponseWriter, httpRequest *http.Request) {
-		token := retrieveToken(httpRequest)
+		token := retrieveTokenFromHeader(httpRequest)
 		if token == "" {
 			response.Unauthorized(responseWriter, "Authentication required")
 			return
@@ -36,22 +38,26 @@ func AuthMiddleware(next http.Handler) http.Handler {
 
 		requestContext := context.WithValue(httpRequest.Context(), UserIDKey, claims.UserID)
 		requestContext = context.WithValue(requestContext, UserRoleKey, claims.Role)
-		
+
 		next.ServeHTTP(responseWriter, httpRequest.WithContext(requestContext))
 	})
 }
 
 // --- Private ---
 
-func retrieveToken(httpRequest *http.Request) string {
+// retrieveTokenFromHeader extrae el JWT solo del header Authorization: Bearer.
+// OWASP A04: Se eliminó el soporte de ?token= en query string para evitar
+// que el token aparezca en logs de servidor, historial del navegador, o referer headers.
+func retrieveTokenFromHeader(httpRequest *http.Request) string {
 	authHeader := httpRequest.Header.Get("Authorization")
-	if authHeader != "" {
-		parts := strings.Split(authHeader, " ")
-		if len(parts) == 2 && parts[0] == "Bearer" {
-			return parts[1]
-		}
+	if authHeader == "" {
+		return ""
 	}
-	return httpRequest.URL.Query().Get("token")
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" || parts[1] == "" {
+		return ""
+	}
+	return parts[1]
 }
 
 func validateFingerprint(httpRequest *http.Request, tokenFingerprint string) bool {
@@ -73,8 +79,8 @@ func validateFingerprint(httpRequest *http.Request, tokenFingerprint string) boo
 }
 
 func isLocalAddress(ip string) bool {
-	return strings.HasPrefix(ip, "127.0.0.1") || 
-		   strings.HasPrefix(ip, "::1") || 
-		   strings.HasPrefix(ip, "[::1]") ||
-		   ip == "localhost"
+	return strings.HasPrefix(ip, "127.0.0.1") ||
+		strings.HasPrefix(ip, "::1") ||
+		strings.HasPrefix(ip, "[::1]") ||
+		ip == "localhost"
 }
