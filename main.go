@@ -50,8 +50,7 @@ func main() {
 
 	databaseConnection, initError := initializeDatabaseAndRunMigrations()
 	if initError != nil {
-		fmt.Printf("🔴 CRITICAL: Database initialization failed explicitly with error: %v\n", initError)
-		slog.Error("Database initialization failed", "error", initError)
+		slog.Error(fmt.Sprintf("🔴 Database initialization failed: %v", initError), "error", initError.Error())
 		os.Exit(1)
 	}
 	defer databaseConnection.Close()
@@ -73,19 +72,19 @@ func main() {
 func initializeDatabaseAndRunMigrations() (*sql.DB, error) {
 	databaseConnection, databaseConnectionError := database.NewConnection()
 	if databaseConnectionError != nil {
-		return nil, databaseConnectionError
+		return nil, fmt.Errorf("connection failed: %w", databaseConnectionError)
 	}
 
 	migrationError := database.RunMigrations(databaseConnection)
 	if migrationError != nil {
 		databaseConnection.Close()
-		return nil, migrationError
+		return nil, fmt.Errorf("migration failed: %w", migrationError)
 	}
 
 	seedingError := database.SeedDatabase(databaseConnection)
 	if seedingError != nil {
 		databaseConnection.Close()
-		return nil, seedingError
+		return nil, fmt.Errorf("seeding failed: %w", seedingError)
 	}
 
 	return databaseConnection, nil

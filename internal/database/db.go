@@ -3,6 +3,8 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -48,6 +50,8 @@ func NewConnection() (*sql.DB, error) {
 				databaseUser, host, port, databaseName)
 		}
 	}
+
+	slog.Info("Connecting to PostgreSQL", "target", sanitizeDBURL(connectionString))
 
 	database, connectionError := sql.Open("postgres", connectionString)
 	if connectionError != nil {
@@ -103,4 +107,12 @@ func getEnvOrDefaultDuration(key string, defaultValue time.Duration) time.Durati
 		return defaultValue
 	}
 	return time.Duration(parsedMinutes) * time.Minute
+}
+
+func sanitizeDBURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "postgres://[hidden]"
+	}
+	return parsed.Redacted()
 }
