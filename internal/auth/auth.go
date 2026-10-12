@@ -65,6 +65,11 @@ func ValidateToken(tokenString string) (*Claims, error) {
 }
 
 func GenerateClientFingerprint(ip string, userAgent string) string {
+	hash := sha256.Sum256([]byte(userAgent))
+	return hex.EncodeToString(hash[:])
+}
+
+func GenerateLegacyClientFingerprint(ip string, userAgent string) string {
 	normalizedIP := ip
 	if host, _, error := net.SplitHostPort(ip); error == nil {
 		normalizedIP = host

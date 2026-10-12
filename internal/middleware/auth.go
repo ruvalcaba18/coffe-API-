@@ -61,6 +61,11 @@ func retrieveTokenFromHeader(httpRequest *http.Request) string {
 }
 
 func validateFingerprint(httpRequest *http.Request, tokenFingerprint string) bool {
+	userAgent := httpRequest.Header.Get("User-Agent")
+	if tokenFingerprint == auth.GenerateClientFingerprint("", userAgent) {
+		return true
+	}
+
 	ip := httpRequest.Header.Get("X-Forwarded-For")
 	if ip == "" {
 		ip = httpRequest.RemoteAddr
@@ -68,10 +73,7 @@ func validateFingerprint(httpRequest *http.Request, tokenFingerprint string) boo
 
 	ip = strings.Split(strings.Split(ip, ",")[0], ":")[0]
 
-	userAgent := httpRequest.Header.Get("User-Agent")
-	currentFingerprint := auth.GenerateClientFingerprint(ip, userAgent)
-
-	if tokenFingerprint == currentFingerprint {
+	if tokenFingerprint == auth.GenerateLegacyClientFingerprint(ip, userAgent) {
 		return true
 	}
 

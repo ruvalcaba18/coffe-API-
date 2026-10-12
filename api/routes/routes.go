@@ -84,7 +84,11 @@ func NewRouter(
 	applicationRouter.Use(middleware.RequestSize(4 * 1024 * 1024))
 
 	allowedOriginsString := os.Getenv("ALLOWED_ORIGINS")
-	allowedOrigins := []string{"http://localhost:3000", "http://localhost:5173"}
+	allowedOrigins := []string{
+		"http://localhost:3000",
+		"http://localhost:5173",
+		"https://la-base-coffe-shop.vercel.app",
+	}
 	if allowedOriginsString != "" {
 		parts := strings.Split(allowedOriginsString, ",")
 		var cleanedOrigins []string
