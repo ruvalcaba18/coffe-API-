@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -14,7 +15,15 @@ import (
 
 func NewConnection() (*sql.DB, error) {
 	connectionString := os.Getenv("DATABASE_URL")
-	if connectionString == "" {
+	if connectionString != "" {
+		if !strings.Contains(connectionString, "sslmode=") {
+			if strings.Contains(connectionString, "?") {
+				connectionString += "&sslmode=disable"
+			} else {
+				connectionString += "?sslmode=disable"
+			}
+		}
+	} else {
 		host := os.Getenv("DB_HOST")
 		if host == "" { host = getEnvOrDefault("PGHOST", "localhost") }
 

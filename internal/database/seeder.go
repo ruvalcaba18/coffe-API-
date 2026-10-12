@@ -15,8 +15,8 @@ import (
 func SeedDatabase(database *sql.DB) error {
 	seedUsers := loadSeedUsersFromEnvironment()
 	if len(seedUsers) == 0 {
-		slog.Info("No seed users configured (set SEED_USERS env var to enable seeding)")
-		return nil
+		slog.Info("No SEED_USERS env var found — seeding default system users (admin, barista, customer)")
+		seedUsers = getDefaultSeedUsers()
 	}
 
 	for _, seedUser := range seedUsers {
@@ -103,6 +103,38 @@ func loadSeedUsersFromEnvironment() []seedUserEntry {
 	}
 
 	return seedUsers
+}
+
+func getDefaultSeedUsers() []seedUserEntry {
+	return []seedUserEntry{
+		{
+			Username:    "admin",
+			Email:       "admin@coffeeshop.com",
+			Password:    "Admin1234!",
+			Role:        user.RoleSuperAdmin,
+			FirstName:   "Admin",
+			LastName:    "Principal",
+			SeedProfile: "demo",
+		},
+		{
+			Username:    "barista",
+			Email:       "barista@coffeeshop.com",
+			Password:    "Barista1234!",
+			Role:        user.RoleBarista,
+			FirstName:   "Carlos",
+			LastName:    "Gomez",
+			SeedProfile: "",
+		},
+		{
+			Username:    "cliente",
+			Email:       "cliente@coffeeshop.com",
+			Password:    "Cliente1234!",
+			Role:        user.RoleCustomer,
+			FirstName:   "Juan",
+			LastName:    "Perez",
+			SeedProfile: "tester",
+		},
+	}
 }
 
 func findExistingUser(database *sql.DB, email string) (int, bool) {
