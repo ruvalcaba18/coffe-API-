@@ -21,6 +21,8 @@ A professional, high-performance Coffee Shop API built with **Go**, **PostgreSQL
   - **Eliminated N+1 Queries**: Orders with line items are retrieved in a single query utilizing `LEFT JOIN` and PostgreSQL native `json_agg()`.
   - **Database-Driven Dashboard**: Aggregations (`total_orders`, `total_revenue`, `avg_order_value`, `pending_orders`, `takeout_orders`) calculated in a single query using SQL `FILTER` clauses and `DATE_TRUNC`.
   - **SQL-Evaluated Status**: Attendance states (`pending`, `checked_in`, `checked_out`) evaluated directly within PostgreSQL using native `CASE WHEN` logic.
+- **Automatic Database Seeding**:
+  - Auto-initializes default system accounts (`superadmin`, `barista`, `customer`) out-of-the-box on first startup without requiring manual SQL inserts.
 - **OWASP Top 10 Hardened**:
   - **A01 (Broken Access Control)**: Granular Role-Based Access Control (`SuperAdmin`, `Admin`, `Barista`, `Customer`) with subordinate hierarchy verification.
   - **A02 (Cryptographic Failures)**: Distinct secrets for JWT, Refresh Tokens, and QR Tokens (`JWT_SECRET`, `REFRESH_TOKEN_SECRET`, `QR_TOKEN_SECRET`). Bcrypt password hashing (cost factor 14).
@@ -58,6 +60,7 @@ A professional, high-performance Coffee Shop API built with **Go**, **PostgreSQL
 │   ├── service/                # Business logic (ACID orders, QR code generation)
 │   ├── store/                  # Data access layer (PostgreSQL implementations)
 │   └── validation/             # Input sanitization and validators
+├── .env.example                # Example environment variables template
 └── README.md
 ```
 
@@ -66,131 +69,211 @@ A professional, high-performance Coffee Shop API built with **Go**, **PostgreSQL
 ## 🛠 Tech Stack
 
 - **Language**: Go 1.24+
-- **Database**: PostgreSQL
-- **Cache**: Redis
+- **Database**: PostgreSQL 14+
+- **Cache**: Redis 6+
 - **Router**: Go-Chi v5
 - **QR Engine**: `github.com/skip2/go-qrcode`
 - **Security**: JWT (v5), HMAC-SHA256, Bcrypt, Bluemonday
 
 ---
 
-## 🚦 Getting Started
+## ⚙️ Environment Variables & Configuration
 
-### 1. Requirements
-- Go 1.24+
-- PostgreSQL 14+
-- Redis 6+
+> [!CAUTION]
+> **LEER ANTES DE DESPLEGAR / READ BEFORE DEPLOYING:**
+> - **NUNCA uses `localhost` en Railway o en la nube.** Cada servicio (tu API, Postgres y Redis) corre en un contenedor separado.
+> - Si configuras `DB_HOST=localhost` o `DB_HOST=postgresql` en Railway, la aplicación fallará con `dial tcp: lookup ... no such host`.
+> - En Railway debes usar **`DATABASE_URL`** y **`REDIS_URL`** directamente.
 
-### 2. Environment Variables
-Create a `.env` file or export the following variables:
+---
 
-```bash
-# Server
+### Opción 1: Despliegue en Railway / Producción (Nube) 🚀
+
+En el panel de tu proyecto en **Railway**:
+
+1. Asegúrate de tener los 3 servicios creados en tu proyecto:
+   - **Tu servicio de la API** (tu repositorio de GitHub).
+   - **PostgreSQL** (*+ New ➔ Database ➔ Add PostgreSQL*).
+   - **Redis** (*+ New ➔ Database ➔ Add Redis*).
+2. Haz clic en la tarjeta de tu **API de Go** ➔ ve a la pestaña **Variables**.
+3. **BORRA** cualquier variable manual previa como `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
+4. Configura las siguientes variables exactas:
+
+| Variable | Valor en Railway | Descripción |
+|---|---|---|
+| **`DATABASE_URL`** | `${{Postgres.DATABASE_URL}}` *(o la URL de tu servicio Postgres)* | Cadena de conexión completa provista por Railway. |
+| **`REDIS_URL`** | `${{Redis.REDIS_URL}}` *(o `${{Redis.REDIS_PRIVATE_URL}}`)* | Cadena de conexión completa provista por Railway. |
+| **`ENV`** | `production` | Modo de ejecución de la aplicación. |
+| **`PORT`** | `8080` | Puerto HTTP (Railway suele inyectarlo en automático). |
+| **`JWT_SECRET`** | Cadena aleatoria de 32+ caracteres | Clave secreta para firmar tokens JWT. |
+| **`REFRESH_TOKEN_SECRET`** | Cadena aleatoria de 32+ caracteres | Clave secreta HMAC para los refresh tokens. |
+| **`QR_TOKEN_SECRET`** | Cadena aleatoria de 32+ caracteres | Clave secreta HMAC para los códigos QR de asistencia. |
+| **`ALLOWED_ORIGINS`** | `http://localhost:3000,https://tu-frontend.vercel.app` | Dominios permitidos para CORS (separados por coma). |
+| **`SEED_USERS`** | *(Opcional)* | Personalización de usuarios de prueba. Si está vacío, se crean los usuarios por defecto automáticamente. |
+
+#### Ejemplo de valores para copiar en Railway (Raw Editor):
+```env
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+ENV=production
 PORT=8080
-ENV=development
-
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=yourpassword
-DB_NAME=coffeeshop
-
-# Redis
-REDIS_ADDR=localhost:6379
-
-# Security Secrets (Must be distinct strong strings in production)
-JWT_SECRET=super_secret_jwt_key_at_least_32_chars
-REFRESH_TOKEN_SECRET=super_secret_refresh_token_key_at_least_32_chars
-QR_TOKEN_SECRET=super_secret_qr_token_key_at_least_32_chars
-
-# CORS
+JWT_SECRET=x9F8vB2qL5mN1zP4wR7tY3uI6oA0sD8fG2hJ4kL6zX8c
+REFRESH_TOKEN_SECRET=m3K7vL9zP1xQ4wE6rT8yU2iO5pA7sD9fG1hJ3kL5zX7c
+QR_TOKEN_SECRET=q5W8eR2tY7uI1oP4aS6dF9gH3jK5lZ8xN0mB2vC4zX6c
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 
-### 3. Database Migrations
-Migrations execute automatically on application startup via `RunMigrations`. The migration runner handles:
-1. `01_init/01_init.sql` (Core tables)
-2. `02_features/` (Reviews, favorites, carts, avatars)
-3. `03_performance/` & `05_fixes/`
-4. `06_attendance/00_refresh_tokens.sql` (Refresh token rotation table)
-5. `06_attendance/01_attendance.sql` (Attendance records & QR tokens)
+---
 
-### 4. Running the Application
-```bash
-go mod tidy
-go run main.go
-```
+### Opción 2: Desarrollo Local en tu Computadora (`.env`) 💻
+
+Para ejecutar la API en tu máquina local usando Go y bases de datos locales:
+
+1. Copia el archivo de plantilla:
+   ```bash
+   cp .env.example .env
+   ```
+2. Edita tu archivo `.env` local con tus credenciales:
+   ```env
+   # Servidor Local
+   PORT=8080
+   ENV=development
+
+   # PostgreSQL Local
+   DB_HOST=localhost
+   DB_PORT=5432
+   DB_USER=postgres
+   DB_PASSWORD=postgres
+   DB_NAME=coffeeshop
+
+   # Redis Local
+   REDIS_ADDR=localhost:6379
+
+   # Claves Criptográficas Locales
+   JWT_SECRET=super_secret_jwt_key_development_32_chars_long
+   REFRESH_TOKEN_SECRET=super_secret_refresh_token_key_dev_32_chars
+   QR_TOKEN_SECRET=super_secret_qr_token_key_dev_32_chars
+
+   # CORS
+   ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+   ```
+3. Ejecuta la aplicación:
+   ```bash
+   go mod tidy
+   go run main.go
+   ```
+
+---
+
+## 👤 Cuentas y Usuarios por Defecto (Default System Users)
+
+Al iniciar la base de datos por primera vez, el sistema **crea automáticamente** las siguientes cuentas para pruebas y administración:
+
+| Rol | Correo Electrónico | Contraseña | Perfil Inicial |
+|---|---|---|---|
+| **SuperAdmin** | `admin@coffeeshop.com` | `Admin1234!` | demo (42 órdenes históricas, estadísticas completas) |
+| **Barista** | `barista@coffeeshop.com` | `Barista1234!` | Estándar (subordinado listo para control QR y asistencia) |
+| **Customer** | `cliente@coffeeshop.com` | `Cliente1234!` | tester (14 órdenes de prueba, favoritos y reseñas) |
+
+> 💡 **Personalización con `SEED_USERS`**: Si deseas definir otros usuarios iniciales, puedes usar el formato:  
+> `SEED_USERS=Username:Email:Password:Rol:Nombre:Apellido:PerfilOpcional` (múltiples usuarios separados por `|`).
+
+---
+
+## 🚦 Database Migrations
+
+Las migraciones se ejecutan de forma automática al arrancar la API mediante `RunMigrations`:
+1. `01_init/01_init.sql` (Tablas principales y productos iniciales)
+2. `02_features/` (Reseñas, favoritos, carritos, idiomas y avatares)
+3. `03_performance/` & `05_fixes/` (Optimizaciones e índices)
+4. `06_attendance/00_refresh_tokens.sql` (Tabla de rotación de tokens)
+5. `06_attendance/01_attendance.sql` (Tablas de asistencia y tokens QR)
 
 ---
 
 ## 📡 RESTful API Endpoints
 
-All endpoints follow the **Resource / Action / Identifier** convention (`/resource/action/{id}` or `/resource/{id}`).
+Todos los endpoints respetan estrictamente la convención **Recurso / Acción / Identificador** (`/recurso/accion/{id}` o `/recurso/{id}`).
 
-### 🔐 Authentication & Session
-- `POST /api/v1/users`: Register a new account.
-- `POST /api/v1/tokens`: Authenticate and receive token pair `{ access_token, refresh_token, expires_in }`.
-- `POST /api/v1/tokens/refresh`: Rotate refresh token and issue a fresh pair (detects token reuse and revokes compromised session families).
-- `POST /api/v1/logout`: Terminate session, invalidate access token, and revoke refresh token family.
+### 🔐 Autenticación y Sesiones
+- `POST /api/v1/users`: Registro de cuenta nueva.
+- `POST /api/v1/tokens`: Inicio de sesión (devuelve par `{ access_token, refresh_token, expires_in }`).
+- `POST /api/v1/tokens/refresh`: Rotación de refresh token y emisión de nuevo par.
+- `POST /api/v1/logout`: Cierre de sesión, invalidación de access token y revocación de familia de refresh tokens.
 
-### 🕒 Employee Attendance (Authenticated Staff)
-- `POST /api/v1/attendance/check-in`: Clock in by scanning QR payload.
-- `POST /api/v1/attendance/check-out`: Clock out by scanning QR payload.
-- `GET /api/v1/attendance/me`: Retrieve personal attendance history.
+### 🕒 Asistencia y Control Horario (Personal Autenticado)
+- `POST /api/v1/attendance/check-in`: Registro de entrada mediante escaneo del código QR.
+- `POST /api/v1/attendance/check-out`: Registro de salida mediante escaneo del código QR.
+- `GET /api/v1/attendance/me`: Historial personal de asistencia del empleado.
 
-### 🛡 Admin Attendance & Oversight (Admin Role Required)
-- `POST /api/v1/admin/attendance/qr/generate`: Generate a 24-hour base64 PNG QR code for a subordinate (`user_id` in body).
-- `GET /api/v1/admin/attendance`: View all attendance records across all employees.
-- `GET /api/v1/admin/attendance/{user_id}`: View complete attendance logs for a specific subordinate.
+### 🛡 Asistencia Admin (Rol Admin / SuperAdmin Requerido)
+- `POST /api/v1/admin/attendance/qr/generate`: Generación de código QR (PNG base64) para un subordinado (`user_id` en body, 24 horas de validez).
+- `GET /api/v1/admin/attendance`: Listado general de asistencia de todos los empleados con status calculado en SQL.
+- `GET /api/v1/admin/attendance/{user_id}`: Historial detallado de asistencia de un subordinado específico.
 
-### 👤 Profile
-- `GET /api/v1/profile`: View current profile.
-- `PATCH /api/v1/profile`: Update profile settings.
-- `POST /api/v1/profile/avatar`: Upload profile picture (max 2MB, JPG/PNG).
+### 👤 Perfil de Usuario
+- `GET /api/v1/profile`: Datos del perfil autenticado.
+- `PATCH /api/v1/profile`: Actualización de perfil (idioma, nombre, etc.).
+- `POST /api/v1/profile/avatar`: Subida de foto de perfil (máx 2MB, JPG/PNG).
 
-### ☕️ Products & Catalog
-- `GET /api/v1/products`: List products with search and filtering (`q`, `category`, `min_price`, `max_price`).
-- `GET /api/v1/products/categories`: List distinct product categories.
-- `GET /api/v1/products/{id}`: View product details (Redis Cached).
-- `GET /api/v1/reviews`: View reviews for a product (`?product_id={id}`).
-- `POST /api/v1/reviews`: Submit product review.
+### ☕️ Catálogo de Productos
+- `GET /api/v1/products`: Catálogo con filtros avanzados (`q`, `category`, `min_price`, `max_price`).
+- `GET /api/v1/products/categories`: Categorías de productos disponibles.
+- `GET /api/v1/products/{id}`: Detalle de producto (con caché Redis).
+- `GET /api/v1/reviews`: Reseñas de un producto (`?product_id={id}`).
+- `POST /api/v1/reviews`: Publicación de reseña.
 
-### 🛒 Shopping Cart
-- `GET /api/v1/cart`: View current cart items.
-- `PATCH /api/v1/cart`: Update item quantity.
+### 🛒 Carrito de Compras
+- `GET /api/v1/cart`: Estado del carrito actual.
+- `PATCH /api/v1/cart`: Actualización de cantidades de productos.
 
-### 📦 Orders
-- `POST /api/v1/orders`: Checkout from cart (**ACID** Transaction with optional coupon support).
-- `GET /api/v1/orders`: View user order history.
-- `GET /api/v1/orders/latest`: View most recent order details.
-- `GET /api/v1/orders/pickups`: View orders scheduled for pickup.
+### 📦 Pedidos y Órdenes
+- `POST /api/v1/orders`: Creación de orden desde el carrito (**Transacción ACID** con soporte de cupones).
+- `GET /api/v1/orders`: Historial de pedidos del usuario.
+- `GET /api/v1/orders/latest`: Último pedido realizado.
+- `GET /api/v1/orders/pickups`: Pedidos programados para recoger en tienda.
 
-### ❤️ Favorites
-- `GET /api/v1/favorites`: List user's favorite products.
-- `POST /api/v1/favorites`: Add product to favorites.
-- `DELETE /api/v1/favorites/{id}`: Remove item from favorites.
+### ❤️ Favoritos
+- `GET /api/v1/favorites`: Lista de productos favoritos.
+- `POST /api/v1/favorites`: Agregar a favoritos.
+- `DELETE /api/v1/favorites/{id}`: Eliminar de favoritos.
 
-### 💳 Billing & Wallet
-- `GET /api/v1/billing/wallet`: View balance and credits.
-- `GET /api/v1/billing/payment-methods`: List saved payment cards.
-- `POST /api/v1/billing/payment-methods`: Register new payment method.
+### 💳 Facturación y Billetera
+- `GET /api/v1/billing/wallet`: Saldo y créditos disponibles.
+- `GET /api/v1/billing/payment-methods`: Métodos de pago registrados.
+- `POST /api/v1/billing/payment-methods`: Registro de nuevo método de pago.
 
-### 🔔 Notifications
-- `GET /api/v1/notifications/ws`: WebSocket connection for real-time status and order updates.
+### 🔔 Notificaciones en Tiempo Real
+- `GET /api/v1/notifications/ws`: Conexión WebSocket para eventos y actualización de pedidos.
 
-### 🛡 Admin Management (Admin / SuperAdmin Required)
-- `GET /api/v1/admin/dashboard/stats`: High-performance single-query dashboard metrics and 7-day sales breakdown.
-- `GET /api/v1/admin/orders`: List all orders across the system.
-- `PATCH /api/v1/admin/orders/{id}`: Update order fulfillment status.
-- `GET /api/v1/admin/users`: List all registered users.
-- `PATCH /api/v1/admin/users/role/{id}`: Update user role (cannot modify SuperAdmin).
-- `DELETE /api/v1/admin/users/{id}`: Permanently remove a user (*SuperAdmin only*).
-- `POST /api/v1/admin/products`: Create a product.
-- `POST /api/v1/admin/products/bulk`: Bulk-create products.
-- `PUT /api/v1/admin/products/{id}`: Update product specifications.
-- `DELETE /api/v1/admin/products/{id}`: Delete product.
-- `POST /api/v1/admin/coupons`: Create discount coupon.
-- `GET /api/v1/admin/coupons`: List coupons and usage analytics.
-- `PATCH /api/v1/admin/coupons/status/{id}`: Activate or deactivate coupon.
-- `DELETE /api/v1/admin/coupons/{id}`: Delete coupon.
+### 🛡 Administración (Rol Admin / SuperAdmin Requerido)
+- `GET /api/v1/admin/dashboard/stats`: Métricas del negocio en una sola consulta SQL (`FILTER` y `DATE_TRUNC`).
+- `GET /api/v1/admin/orders`: Listado de todos los pedidos del sistema.
+- `PATCH /api/v1/admin/orders/{id}`: Cambio de estado de un pedido (notificación vía WebSocket).
+- `GET /api/v1/admin/users`: Listado de usuarios del sistema.
+- `PATCH /api/v1/admin/users/role/{id}`: Cambio de rol de usuario (no aplicable a SuperAdmin).
+- `DELETE /api/v1/admin/users/{id}`: Eliminación de usuario (*SuperAdmin únicamente*).
+- `POST /api/v1/admin/products`: Creación de producto.
+- `POST /api/v1/admin/products/bulk`: Creación masiva de productos.
+- `PUT /api/v1/admin/products/{id}`: Actualización de producto.
+- `DELETE /api/v1/admin/products/{id}`: Eliminación de producto.
+- `POST /api/v1/admin/coupons`: Creación de cupón de descuento.
+- `GET /api/v1/admin/coupons`: Listado de cupones y conteo de uso directo en SQL.
+- `PATCH /api/v1/admin/coupons/status/{id}`: Habilitación o inhabilitación de cupón.
+- `DELETE /api/v1/admin/coupons/{id}`: Eliminación de cupón.
+
+---
+
+## ❓ Preguntas Frecuentes y Solución de Problemas (Troubleshooting)
+
+### Error: `dial tcp: lookup postgresql on [fd12::10]:53: no such host`
+- **Causa**: Escribiste manualmente `postgresql`, `railway` o `localhost` en las variables de Railway.
+- **Solución**: En Railway, **borra** `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`. En su lugar, usa únicamente la variable **`DATABASE_URL`** vinculada con `${{Postgres.DATABASE_URL}}` o copiada desde tu servicio de PostgreSQL.
+
+### Error: `dial tcp: lookup localhost: connect: connection refused` en Railway
+- **Causa**: Tu API está buscando la base de datos dentro de su propio contenedor donde PostgreSQL no corre.
+- **Solución**: Usa `DATABASE_URL` con la dirección provista por el plugin de PostgreSQL de Railway.
+
+### Advertencias de seguridad `[SECURITY WARNING] JWT_SECRET is not set`
+- **Causa**: Faltan las variables de firma criptográfica en el panel de Railway.
+- **Solución**: Agrega `JWT_SECRET`, `REFRESH_TOKEN_SECRET` y `QR_TOKEN_SECRET` en la pestaña **Variables** con cadenas aleatorias de al menos 32 caracteres.
